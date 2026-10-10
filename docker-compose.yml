@@ -1,7 +1,7 @@
-# Entorno local: PostgreSQL 16 + migraciones + API.
-#   export CLASSIFIER_REPO_TOKEN=<token>   # ver README
+# Entorno local: PostgreSQL 16 + migraciones + API (con el modelo local dentro de la imagen).
+#   export CLASSIFIER_REPO_TOKEN=<token>   # lectura del repositorio privado del clasificador (ver README)
 #   docker compose up -d --build
-#   docker compose exec api pqrs-admin --help
+# La primera construcción tarda varios minutos (torch, SBERT); las siguientes usan la caché.
 services:
   db:
     image: postgres:16
@@ -19,11 +19,10 @@ services:
       timeout: 3s
       retries: 20
 
-  # Tarea de un solo uso: aplica las migraciones y termina.
+  # Tarea de un solo uso: aplica las migraciones y termina. Usa la misma imagen que `api`
+  # (la construye el servicio `api`).
   migrate:
-    build:
-      context: .
-      secrets: [classifier_token]
+    image: pqrs-api:local
     command: ["alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+psycopg://pqrs:pqrs@db:5432/pqrs
@@ -32,6 +31,7 @@ services:
         condition: service_healthy
 
   api:
+    image: pqrs-api:local
     build:
       context: .
       secrets: [classifier_token]
@@ -39,12 +39,28 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://pqrs:pqrs@db:5432/pqrs
-      # Solo para desarrollo local por HTTP: en cualquier otro entorno déjala en true.
+      # Solo para desarrollo local: en cualquier otro entorno, ENVIRONMENT distinto y un secreto largo
+      # y aleatorio (openssl rand -hex 32) y SESSION_COOKIE_SECURE en true.
+      ENVIRONMENT: development
       SESSION_COOKIE_SECURE: "false"
+      # Secreto que el proxy del dashboard envía en X-PQRS-Proxy-Secret. Con él definido se exige
+      # siempre, también en desarrollo; para probar a mano mira "Iniciar sesión con curl" en el README.
+      PROXY_SHARED_SECRET: dev-proxy-secret-solo-para-local
+      # Sin LLM_API_KEY ni LLM_MODEL el LLM queda `not_configured` y solo funciona `classifier`.
+      # LLM_API_KEY: ""
+      # LLM_BASE_URL: ""
+      # LLM_MODEL: ""
       LOG_LEVEL: INFO
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      # /ready exige base de datos y modelo local cargado. SBERT tarda unos segundos en cargar.
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
 # Token de solo lectura del repositorio privado del clasificador (ver README):
 #   export CLASSIFIER_REPO_TOKEN=...   (o  CLASSIFIER_REPO_TOKEN=$(gh auth token) docker compose ...)

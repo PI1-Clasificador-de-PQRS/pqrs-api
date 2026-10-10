@@ -59,10 +59,38 @@ nocturno): `SLOW_MODEL_DIR=<dir> uv run --group ml pytest -m slow`.
 ```bash
 export CLASSIFIER_REPO_TOKEN=<token>   # ver la sección anterior
 docker compose up -d --build   # PostgreSQL 16, migraciones (servicio `migrate`) y API en :8000
-curl localhost:8000/ready      # {"status":"ready"}
+curl localhost:8000/ready      # {"status":"ready"} cuando el modelo local ya cargó
 ```
 
-La CLI corre dentro del contenedor: `docker compose exec api pqrs-admin --help`.
+La CLI corre dentro del contenedor: `docker compose exec api pqrs-admin --help`. La primera
+construcción tarda varios minutos (torch y los pesos de SBERT); las siguientes usan la caché de
+capas. Para probar el flujo completo a mano (login con las cabeceras del proxy, clasificar,
+historial, métricas) sigue [Iniciar sesión con curl](#iniciar-sesión-con-curl); en `docker-compose.yml`
+el secreto del proxy es `dev-proxy-secret-solo-para-local`. Sin `LLM_API_KEY` y `LLM_MODEL`, `/models`
+muestra el LLM como `not_configured` y solo funciona `"model":"classifier"` (o omitir `model`).
+
+### La imagen Docker
+
+Imagen multi-etapa (`Dockerfile`): la etapa `builder` instala las dependencias con el grupo `ml`
+(torch **de CPU**), descarga los pesos de SBERT (`paraphrase-multilingual-mpnet-base-v2`, en la
+revisión que fija `metadata.json`) y `model.joblib` + `metadata.json` del GitHub Release `v0.1.0` del
+clasificador (con verificación sha256); la etapa final solo copia el resultado. Corre como usuario no
+root (uid 10001), con `HF_HUB_OFFLINE=1` (sin red hacia Hugging Face en ejecución) y `MODEL_DIR=/opt/model`.
+El token entra como *build secret* y no queda en ninguna capa (se comprobó buscándolo en el sistema de
+archivos y en `docker history`).
+
+```bash
+docker build --secret id=classifier_token,env=CLASSIFIER_REPO_TOKEN -t pqrs-api .
+```
+
+| | Medido (v0.1.0, `linux/amd64`) |
+|---|---|
+| Tamaño de la imagen | ~4,6 GB en disco según `docker images` (~1,6 GB comprimida): 1,7 GB de entorno Python (torch de CPU ≈ 0,8 GB), 1,1 GB de pesos de SBERT y el resto, la base |
+| Memoria en ejecución | ~0,85 GB en el cgroup con el modelo cargado y unas pocas peticiones; pico de RSS ≈ 1,35 GB |
+| Memoria a reservar | **≥ 2 GB** por réplica (la estimación del documento de diseño), por los lotes del motor local (`CLASSIFIER_MAX_CONCURRENCY`, 2 por defecto, acota el pico) |
+
+Una sola réplica y un solo proceso `uvicorn`: el límite de solicitudes, el de intentos de login y el
+circuito del LLM viven en memoria.
 
 ### Opción B: API local con `uv` y solo la base de datos en Docker
 

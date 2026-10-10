@@ -203,6 +203,19 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
   bytes del stream. FastAPI convierte un fallo al leer el cuerpo en un 400, así que el middleware sustituye
   esa respuesta por el 413 `payload_too_large`. Está por dentro del middleware de log para que lo registre.
 
+## Imagen Docker (parte 2, PR e)
+
+- `Dockerfile` multi-etapa: `builder` (git, curl, `uv sync --frozen --no-dev --group ml`, pesos de SBERT en
+  `HF_HOME=/opt/hf`, `model.joblib` y `metadata.json` del release con sha256 fijados como `ARG`) y etapa final
+  sin git ni token, usuario no root, `HF_HUB_OFFLINE=1`, `MODEL_DIR=/opt/model`, `TQDM_DISABLE=1`. El build
+  falla si el motor local no carga sin red. El token (`classifier_token`) solo vive en cada
+  `RUN --mount=type=secret`, como variables `GIT_CONFIG_*` de git o en la cabecera de `curl`.
+- Al actualizar `pqrs-classifier` (nuevo tag) hay que cambiar a la vez: el tag en `pyproject.toml`
+  (`uv lock`), `CLASSIFIER_RELEASE`, `MODEL_SHA256` y `METADATA_SHA256` del `Dockerfile`, y la versión de
+  scikit-learn del grupo `ml` si cambia `metadata.json`.
+- `docker-compose.yml`: `api` construye la imagen (`pqrs-api:local`), `migrate` la reutiliza; `api` tiene
+  healthcheck sobre `/ready`. Usa `ENVIRONMENT=development` con un `PROXY_SHARED_SECRET` de desarrollo.
+
 ## Qué queda para la parte 2
 
-Pendiente: imagen Docker con el modelo (PR e).
+Nada pendiente de la parte 2 en esta rama; el despliegue en Azure es la etapa E5.
