@@ -3,10 +3,12 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pqrs_classifier.testing import FakeEngine
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.infrastructure.config.settings import Settings
+from app.infrastructure.engines.registry import EngineRegistry
 from app.infrastructure.security.passwords import Argon2PasswordHasher
 from app.main import create_app
 from tests.db_utils import TEST_DATABASE_URL, create_database, migrate
@@ -77,13 +79,34 @@ def clock() -> FakeClock:
 
 
 @pytest.fixture
+def llm_engine() -> FakeEngine:
+    return FakeEngine(id="llm", model_version="fake-llm-1", prompt_version="fake-prompt-1")
+
+
+@pytest.fixture
+def classifier_engine() -> FakeEngine:
+    return FakeEngine(id="classifier", model_version="fake-classifier-1")
+
+
+@pytest.fixture
+def registry(
+    settings: Settings, clock: FakeClock, llm_engine: FakeEngine, classifier_engine: FakeEngine
+) -> EngineRegistry:
+    """Registro con motores falsos: sin red, sin torch."""
+    return EngineRegistry(
+        settings, clock, llm=llm_engine, classifier=classifier_engine, classifier_f1=0.7776
+    )
+
+
+@pytest.fixture
 def app(
     settings: Settings,
     session_factory: sessionmaker[Session],
     clock: FakeClock,
     hasher: Argon2PasswordHasher,
+    registry: EngineRegistry,
 ) -> FastAPI:
-    return create_app(settings, session_factory, clock=clock, hasher=hasher)
+    return create_app(settings, session_factory, clock=clock, hasher=hasher, registry=registry)
 
 
 @pytest.fixture

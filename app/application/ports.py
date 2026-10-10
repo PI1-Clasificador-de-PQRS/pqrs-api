@@ -6,9 +6,13 @@ que resuelven una credencial antes de conocer la organización: ``UserRepository
 ``ApiKeyRepository.get_by_hash`` y ``SessionRepository.get_by_token_hash``.
 """
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
+
+from pqrs_classifier.engines.base import Prediction
 
 from app.domain.entities import (
     ApiKey,
@@ -156,3 +160,38 @@ class LoginRateLimiter(Protocol):
     def record_failure(self, *, email: str, ip: str | None) -> None: ...
 
     def record_success(self, *, email: str, ip: str | None) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class EngineStatus:
+    """Disponibilidad de un motor.
+
+    ``reason``: not_configured, temporarily_unavailable o not_loaded.
+    """
+
+    id: str
+    available: bool
+    reason: str | None
+    retry_after: int | None
+    f1_macro: float | None
+
+
+class EngineGateway(Protocol):
+    """Acceso a los motores de clasificación (``llm`` y ``classifier``).
+
+    Nunca cambia de motor por su cuenta: ``select`` decide **antes** de clasificar y, si el motor
+    elegido falla, ``classify``/``classify_batch`` lanzan ``ServiceUnavailable`` (503).
+    """
+
+    def select(self, requested: str | None) -> str:
+        """Motor pedido si está disponible; si se omite, ``llm`` o, si no, ``classifier``."""
+        ...
+
+    def classify(self, engine_id: str, text: str) -> Prediction: ...
+
+    def classify_batch(self, engine_id: str, texts: Sequence[str]) -> list[Prediction]: ...
+
+    def status(self) -> list[EngineStatus]: ...
+
+    @property
+    def classifier_loaded(self) -> bool: ...

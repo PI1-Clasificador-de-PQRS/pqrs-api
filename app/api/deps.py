@@ -13,6 +13,7 @@ from app.application.ports import UnitOfWork
 from app.domain.errors import DomainError, ErrorCode
 from app.domain.principal import Principal
 from app.infrastructure.config.settings import Settings, get_settings
+from app.infrastructure.engines.registry import EngineRegistry
 from app.infrastructure.repositories.uow import SqlUnitOfWork
 
 CSRF_HEADER = "X-PQRS-CSRF"
@@ -39,6 +40,11 @@ _api_key_scheme = APIKeyHeader(
 def get_settings_dep(request: Request) -> Settings:
     settings: Settings = request.app.state.settings
     return settings
+
+
+def get_registry(request: Request) -> EngineRegistry:
+    registry: EngineRegistry = request.app.state.registry
+    return registry
 
 
 def get_db(request: Request) -> Iterator[Session]:

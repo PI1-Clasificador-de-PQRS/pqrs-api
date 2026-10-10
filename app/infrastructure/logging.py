@@ -8,7 +8,16 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 # Único conjunto de campos extra que llega a la salida. Lo que no esté aquí se descarta, de
 # modo que ningún registro pueda arrastrar por descuido cuerpos, cookies ni credenciales.
-ALLOWED_EXTRA_FIELDS = ("method", "path", "status", "latency_ms", "request_id", "exception_type")
+ALLOWED_EXTRA_FIELDS = (
+    "method",
+    "path",
+    "status",
+    "latency_ms",
+    "request_id",
+    "exception_type",
+    "engine",
+    "circuit_state",
+)
 
 
 class JsonFormatter(logging.Formatter):

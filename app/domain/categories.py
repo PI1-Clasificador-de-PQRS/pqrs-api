@@ -1,17 +1,15 @@
 """Taxonomía del dominio.
 
-Las categorías y su orden canónico deben coincidir con ``pqrs_classifier.categories``
-(en la parte 2 se importarán del paquete en lugar de redefinirse aquí).
+Las categorías y su orden canónico salen de ``pqrs_classifier.categories`` (fuente única). Ese
+módulo solo usa la biblioteca estándar, por eso el dominio puede importarlo.
 """
 
 from enum import StrEnum
 
+from pqrs_classifier.categories import CATEGORIES as _PACKAGE_CATEGORIES
+from pqrs_classifier.categories import Category
 
-class Category(StrEnum):
-    PETICION = "Petición"
-    RECLAMO = "Reclamo"
-    DENUNCIA = "Denuncia"
-    SOLICITUD_INFORMACION = "Solicitud de información"
+__all__ = ["CATEGORIES", "ENGINES", "SOURCES", "Category", "Engine", "Source"]
 
 
 class Engine(StrEnum):
@@ -25,6 +23,6 @@ class Source(StrEnum):
     API = "api"
 
 
-CATEGORIES: tuple[str, ...] = tuple(c.value for c in Category)
+CATEGORIES: tuple[str, ...] = tuple(c.value for c in _PACKAGE_CATEGORIES)
 ENGINES: tuple[str, ...] = tuple(e.value for e in Engine)
 SOURCES: tuple[str, ...] = tuple(s.value for s in Source)

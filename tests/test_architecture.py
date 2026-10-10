@@ -40,3 +40,13 @@ def test_layer_does_not_import_outer_layers_or_frameworks(layer: str) -> None:
                 assert module != forbidden and not module.startswith(forbidden + "."), (
                     f"{path.relative_to(APP.parent)} importa {module}, prohibido en {layer}"
                 )
+
+
+def test_domain_only_uses_the_stdlib_package_categories() -> None:
+    """El dominio solo puede importar ``pqrs_classifier.categories`` (stdlib) del paquete."""
+    for path in (APP / "domain").rglob("*.py"):
+        for module in imported_modules(path):
+            if module == "pqrs_classifier" or module.startswith("pqrs_classifier."):
+                assert module == "pqrs_classifier.categories", (
+                    f"{path.relative_to(APP.parent)} importa {module}"
+                )

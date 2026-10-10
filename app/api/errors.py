@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.schemas.common import ErrorResponse
-from app.domain.errors import DomainError, ErrorCode
+from app.domain.errors import DomainError, ErrorCode, ServiceUnavailable
 
 logger = logging.getLogger("pqrs.api")
 
@@ -131,7 +131,10 @@ def install_error_handlers(app: FastAPI) -> None:
 
     async def handle_domain_error(request: Request, exc: Exception) -> JSONResponse:
         assert isinstance(exc, DomainError)
-        return _json_error(exc.code, exc.message)
+        headers = None
+        if isinstance(exc, ServiceUnavailable) and exc.retry_after:
+            headers = {"Retry-After": str(exc.retry_after)}
+        return _json_error(exc.code, exc.message, headers=headers)
 
     async def handle_validation_error(request: Request, exc: Exception) -> JSONResponse:
         assert isinstance(exc, RequestValidationError)
