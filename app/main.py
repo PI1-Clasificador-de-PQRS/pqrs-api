@@ -4,10 +4,12 @@ from fastapi import FastAPI
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.errors import install_error_handlers
+from app.api.middleware import RequestLogMiddleware
 from app.api.routers import auth, health, me
 from app.application.ports import Clock, PasswordHasher
 from app.infrastructure.config.settings import Settings, get_settings
 from app.infrastructure.db.session import get_sessionmaker
+from app.infrastructure.logging import configure_logging
 from app.infrastructure.security.clock import SystemClock
 from app.infrastructure.security.passwords import Argon2PasswordHasher
 from app.infrastructure.security.rate_limit import InMemoryLoginRateLimiter
@@ -40,6 +42,7 @@ def create_app(
     )
 
     install_error_handlers(app)
+    app.add_middleware(RequestLogMiddleware)
     app.include_router(health.router)
     app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
@@ -47,4 +50,7 @@ def create_app(
 
 
 def get_app() -> FastAPI:
-    return create_app()
+    """Fábrica para uvicorn (`--factory`): configura el logging y crea la aplicación."""
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    return create_app(settings)
