@@ -131,6 +131,11 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
     genere más de ese número de claves distintas dentro de la ventana puede desalojar contadores
     ajenos.
 
+- **Vida de la sesión:** caduca por inactividad (`SESSION_IDLE_HOURS`, 8, medida con `last_seen_at`)
+  **y** por vida máxima absoluta desde el login (`SESSION_MAX_HOURS`, 24, medida con `created_at`):
+  pasado ese tiempo la sesión es inválida aunque tenga actividad reciente (401 `session_expired`,
+  se borra la fila y la cookie).
+
 ## Qué queda para la parte 2
 
 Hoy estas rutas están definidas con sus esquemas y responden `501 not_implemented` (tras

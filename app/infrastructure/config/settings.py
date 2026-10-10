@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     session_cookie_name: str = "pqrs_session"
     session_cookie_secure: bool = True
     session_idle_hours: int = 8
+    # Vida máxima de una sesión desde el login, aunque tenga actividad reciente.
+    session_max_hours: int = Field(default=24, ge=1)
     # Fallos permitidos por par (email, IP) y por IP sola, dentro de la misma ventana.
     login_max_attempts: int = Field(default=5, ge=1)
     login_max_attempts_per_ip: int = Field(default=20, ge=1)

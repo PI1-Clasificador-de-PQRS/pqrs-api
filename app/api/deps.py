@@ -73,6 +73,7 @@ def get_auth_service(
         limiter=state.rate_limiter,
         clock=state.clock,
         session_idle=timedelta(hours=settings.session_idle_hours),
+        session_max=timedelta(hours=settings.session_max_hours),
     )
 
 

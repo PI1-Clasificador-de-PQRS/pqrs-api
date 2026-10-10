@@ -64,6 +64,7 @@ def settings() -> Settings:
         session_cookie_name="pqrs_session",
         session_cookie_secure=True,
         session_idle_hours=8,
+        session_max_hours=24,
         login_max_attempts=5,
         login_window_minutes=15,
         trusted_proxy_hops=0,
