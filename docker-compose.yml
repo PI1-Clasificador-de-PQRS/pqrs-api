@@ -1,4 +1,5 @@
 # Entorno local: PostgreSQL 16 + migraciones + API.
+#   export CLASSIFIER_REPO_TOKEN=<token>   # ver README
 #   docker compose up -d --build
 #   docker compose exec api pqrs-admin --help
 services:
@@ -20,7 +21,9 @@ services:
 
   # Tarea de un solo uso: aplica las migraciones y termina.
   migrate:
-    build: .
+    build:
+      context: .
+      secrets: [classifier_token]
     command: ["alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+psycopg://pqrs:pqrs@db:5432/pqrs
@@ -29,7 +32,9 @@ services:
         condition: service_healthy
 
   api:
-    build: .
+    build:
+      context: .
+      secrets: [classifier_token]
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -40,6 +45,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+# Token de solo lectura del repositorio privado del clasificador (ver README):
+#   export CLASSIFIER_REPO_TOKEN=...   (o  CLASSIFIER_REPO_TOKEN=$(gh auth token) docker compose ...)
+secrets:
+  classifier_token:
+    environment: CLASSIFIER_REPO_TOKEN
 
 volumes:
   pgdata:
