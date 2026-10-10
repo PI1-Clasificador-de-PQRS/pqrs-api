@@ -3,11 +3,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import require_session
-from app.api.errors import ApiError, error_responses
-from app.api.schemas.metrics import Granularity, MetricsSummary
+from app.api.deps import get_metrics_service, get_registry, require_session
+from app.api.errors import error_responses
+from app.api.routers.models import to_model_info
+from app.api.schemas.metrics import EvaluationSummary, Granularity, MetricsSummary, TimeseriesPoint
+from app.application.reporting import MetricsService
+from app.domain.categories import Category, Engine, Source
 from app.domain.errors import ErrorCode
 from app.domain.principal import Principal
+from app.infrastructure.engines.registry import EngineRegistry
 
 router = APIRouter(tags=["metrics"])
 
@@ -22,11 +26,12 @@ router = APIRouter(tags=["metrics"])
         ErrorCode.SESSION_EXPIRED,
         ErrorCode.SESSION_REQUIRED,
         ErrorCode.INVALID_REQUEST,
-        ErrorCode.NOT_IMPLEMENTED,
     ),
 )
 def metrics_summary(
     principal: Annotated[Principal, Depends(require_session)],
+    service: Annotated[MetricsService, Depends(get_metrics_service)],
+    registry: Annotated[EngineRegistry, Depends(get_registry)],
     date_from: Annotated[
         date | None, Query(description="Desde esta fecha (UTC), inclusive. Formato YYYY-MM-DD.")
     ] = None,
@@ -37,6 +42,27 @@ def metrics_summary(
 ) -> MetricsSummary:
     """Totales por categoría, motor y origen, serie temporal y F1 macro de cada motor.
 
-    **Contrato v0:** responde 501 hasta la parte 2. Requiere sesión (una API key no sirve).
+    Requiere sesión (una API key no sirve). `by_category`, `by_model` y `by_source` traen
+    **todas** las claves posibles, también las que valen 0. `total` coincide con el `total` de
+    `GET /classifications` con las mismas fechas.
+
+    `timeseries` cuenta por día UTC (`day`) o por semana ISO que empieza el lunes (`week`) y no
+    tiene huecos: los periodos sin clasificaciones valen 0. Si falta `date_from` o `date_to`, la
+    serie empieza o termina en la primera o última clasificación; sin ninguna fecha ni datos queda
+    vacía. Un rango de más de 400 periodos responde 422 `invalid_request`.
     """
-    raise ApiError(ErrorCode.NOT_IMPLEMENTED)
+    data = service.summary(
+        principal.org_id,
+        date_from=date_from,
+        date_to=date_to,
+        granularity=granularity.value,
+    )
+    evaluation = {s.id: to_model_info(s).evaluation for s in registry.status()}
+    return MetricsSummary(
+        total=data.total,
+        by_category={Category(k): v for k, v in data.by_category.items()},
+        by_model={Engine(k): v for k, v in data.by_engine.items()},
+        by_source={Source(k): v for k, v in data.by_source.items()},
+        timeseries=[TimeseriesPoint(period=p, count=n) for p, n in data.timeseries],
+        evaluation=EvaluationSummary(llm=evaluation["llm"], classifier=evaluation["classifier"]),
+    )

@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.application.ports import ClassificationFilters
 from app.domain.entities import Classification, Organization, User
 from app.infrastructure.repositories.uow import SqlUnitOfWork
 from app.infrastructure.security.passwords import Argon2PasswordHasher
@@ -41,6 +42,8 @@ def log_in(client: TestClient, tenant: Tenant) -> None:
     assert response.status_code == 200, response.text
 
 
-def stored(db: Session, org_id: UUID, **kwargs: object) -> list[Classification]:
+def stored(db: Session, org_id: UUID) -> list[Classification]:
     """Clasificaciones guardadas de una organización, del más reciente al más antiguo."""
-    return SqlUnitOfWork(db).classifications.list(org_id, limit=1000, **kwargs)  # type: ignore[arg-type]
+    return SqlUnitOfWork(db).classifications.search(
+        org_id, ClassificationFilters(), limit=1000, offset=0
+    )

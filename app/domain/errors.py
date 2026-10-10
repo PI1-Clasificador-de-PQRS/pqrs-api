@@ -17,7 +17,6 @@ class ErrorCode(StrEnum):
     INVALID_EXTERNAL_REF = "invalid_external_ref"
     TOO_MANY_ATTEMPTS = "too_many_attempts"
     RATE_LIMITED = "rate_limited"
-    NOT_IMPLEMENTED = "not_implemented"
     LLM_UNAVAILABLE = "llm_unavailable"
     CLASSIFIER_UNAVAILABLE = "classifier_unavailable"
     DATABASE_UNAVAILABLE = "database_unavailable"

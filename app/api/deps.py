@@ -12,6 +12,7 @@ from app.api.errors import ApiError
 from app.application.auth import AuthService
 from app.application.classification import ClassificationService
 from app.application.ports import UnitOfWork
+from app.application.reporting import HistoryService, MetricsService
 from app.domain.errors import DomainError, ErrorCode
 from app.domain.principal import Principal
 from app.infrastructure.config.settings import Settings, get_settings
@@ -91,6 +92,14 @@ def get_classification_service(
     registry: Annotated[EngineRegistry, Depends(get_registry)],
 ) -> ClassificationService:
     return ClassificationService(uow, registry, request.app.state.clock, anonymize)
+
+
+def get_history_service(uow: Annotated[UnitOfWork, Depends(get_uow)]) -> HistoryService:
+    return HistoryService(uow)
+
+
+def get_metrics_service(uow: Annotated[UnitOfWork, Depends(get_uow)]) -> MetricsService:
+    return MetricsService(uow)
 
 
 def client_ip(request: Request, settings: Settings) -> str | None:

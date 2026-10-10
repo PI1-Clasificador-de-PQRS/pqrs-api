@@ -171,10 +171,18 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
 - El texto original solo existe en memoria durante la petición. Los logs de motores registran únicamente
   `engine`, `exception_type` y `circuit_state`.
 
+## Historial y métricas (parte 2, PR c)
+
+- `GET /classifications` (+ `/{id}`) y `GET /metrics/summary` son solo de sesión. Historial y métricas usan los
+  **mismos filtros** (`ClassificationFilters`, una sola función `_filtered` en el repositorio), así que
+  `total` coincide con el de `/classifications` para las mismas fechas (criterio E4).
+- Fechas `YYYY-MM-DD` en UTC, inclusivas: `[date_from 00:00, date_to + 1 día 00:00)`. `date_from > date_to` → 422.
+- Métricas: agregaciones en SQL (`GROUP BY`, `date_trunc` sobre `timezone('UTC', created_at)`), mapas con todas
+  las claves (también las de valor 0) y serie sin huecos (semanas ISO desde el lunes). Sin fechas, la serie va de
+  la primera a la última clasificación; más de 400 periodos → 422. `evaluation.f1_macro` sale de los motores.
+- Todo método nuevo del repositorio recibe `org_id` obligatorio (`test_repository_guard.py`).
+
 ## Qué queda para la parte 2
 
-Hoy estas rutas están definidas con sus esquemas y responden `501 not_implemented` (tras
-autenticar): `GET /classifications`, `GET /classifications/{id}` y `GET /metrics/summary`.
-
-Pendiente: historial y métricas, límite de solicitudes, proxy de confianza del dashboard, límite de
-tamaño de cuerpo, imagen Docker con el modelo.
+Pendiente: límite de solicitudes, proxy de confianza del dashboard, límite de tamaño de cuerpo, imagen
+Docker con el modelo.

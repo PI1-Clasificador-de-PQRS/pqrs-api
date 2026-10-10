@@ -5,8 +5,8 @@ Antioquia). Clasifica Peticiones, Reclamos, Denuncias y Solicitudes de informaci
 tres repositorios: el clasificador (`pqrs-classifier`), esta API y el dashboard en Next.js.
 
 Estado: **E2 parte 2, en curso** — la parte 1 (autenticación, aislamiento por organización, CLI y
-contrato OpenAPI v0) está en `main`; la parte 2 se entrega en varios PR. Las rutas de historial y
-métricas que aún no se han implementado responden `501 not_implemented`.
+contrato OpenAPI v0) está en `main`; la parte 2 (clasificación, historial, métricas y endurecimiento)
+se entrega en varios PR.
 
 ## Requisitos
 
@@ -121,7 +121,7 @@ exigen sesión:
 ```bash
 curl -H "X-API-Key: $KEY" localhost:8000/api/v1/me   # 401 session_required
 curl -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"text":"Solicito copia de mi expediente"}' localhost:8000/api/v1/classify   # 501 hasta la parte 2
+  -d '{"text":"Solicito copia de mi expediente","model":"classifier"}' localhost:8000/api/v1/classify
 ```
 
 ## IP del cliente y proxies (`TRUSTED_PROXY_HOPS`)

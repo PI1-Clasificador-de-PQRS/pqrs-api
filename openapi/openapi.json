@@ -397,7 +397,6 @@
           "invalid_external_ref",
           "too_many_attempts",
           "rate_limited",
-          "not_implemented",
           "llm_unavailable",
           "classifier_unavailable",
           "database_unavailable",
@@ -724,7 +723,7 @@
     }
   },
   "info": {
-    "description": "API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de información).\n\n**Contrato en construcción (E2 parte 2).** `GET /classifications`, `GET /classifications/{id}` y `GET /metrics/summary` están definidos pero responden `501 not_implemented` hasta el siguiente PR.\n\n## Credenciales\n\n* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.\n* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** (`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.\n* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con API key están exentos.\n\nToda credencial se resuelve en una organización; un recurso de otra organización responde 404.\n\n## Errores\n\nTodos los errores tienen la forma `{\"detail\": {\"code\": \"<código_estable>\", \"message\": \"<texto>\"}}`.\n\n| HTTP | Códigos |\n|---|---|\n| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |\n| 403 | `csrf_required` |\n| 404 | `not_found` |\n| 413 | `batch_too_large` |\n| 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |\n| 429 | `too_many_attempts`, `rate_limited` |\n| 501 | `not_implemented` |\n| 503 | `llm_unavailable`, `classifier_unavailable` |\n",
+    "description": "API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de información).\n\n## Credenciales\n\n* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.\n* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** (`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.\n* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con API key están exentos.\n\nToda credencial se resuelve en una organización; un recurso de otra organización responde 404.\n\n## Errores\n\nTodos los errores tienen la forma `{\"detail\": {\"code\": \"<código_estable>\", \"message\": \"<texto>\"}}`.\n\n| HTTP | Códigos |\n|---|---|\n| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |\n| 403 | `csrf_required` |\n| 404 | `not_found` |\n| 413 | `batch_too_large` |\n| 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |\n| 429 | `too_many_attempts`, `rate_limited` |\n| 503 | `llm_unavailable`, `classifier_unavailable` |\n",
     "summary": "API del Clasificador automático de PQRS",
     "title": "pqrs-api",
     "version": "0.1.0"
@@ -941,7 +940,7 @@
     },
     "/api/v1/classifications": {
       "get": {
-        "description": "Historial paginado de la organización de la sesión, del más reciente al más antiguo.\n\n**Contrato v0:** responde 501 hasta la parte 2. Requiere sesión (una API key no sirve).",
+        "description": "Historial paginado de la organización de la sesión, del más reciente al más antiguo.\n\nLos filtros se combinan con AND. `total` es el número de clasificaciones que cumplen los\nfiltros (no solo las de la página), igual que el `total` de `GET /metrics/summary` con las\nmismas fechas. Requiere sesión (una API key no sirve).",
         "operationId": "list_classifications_api_v1_classifications_get",
         "parameters": [
           {
@@ -1163,26 +1162,6 @@
               }
             },
             "description": "Códigos posibles: `invalid_request`"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "examples": {
-                  "not_implemented": {
-                    "value": {
-                      "detail": {
-                        "code": "not_implemented",
-                        "message": "Funcionalidad aún no implementada."
-                      }
-                    }
-                  }
-                },
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Códigos posibles: `not_implemented`"
           }
         },
         "security": [
@@ -1198,7 +1177,7 @@
     },
     "/api/v1/classifications/{classification_id}": {
       "get": {
-        "description": "Una clasificación de la organización de la sesión; la de otra organización da 404.\n\n**Contrato v0:** responde 501 hasta la parte 2.",
+        "description": "Una clasificación de la organización de la sesión; la de otra organización da 404.",
         "operationId": "get_classification_api_v1_classifications__classification_id__get",
         "parameters": [
           {
@@ -1324,26 +1303,6 @@
               }
             },
             "description": "Códigos posibles: `invalid_request`"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "examples": {
-                  "not_implemented": {
-                    "value": {
-                      "detail": {
-                        "code": "not_implemented",
-                        "message": "Funcionalidad aún no implementada."
-                      }
-                    }
-                  }
-                },
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Códigos posibles: `not_implemented`"
           }
         },
         "security": [
@@ -1850,7 +1809,7 @@
     },
     "/api/v1/metrics/summary": {
       "get": {
-        "description": "Totales por categoría, motor y origen, serie temporal y F1 macro de cada motor.\n\n**Contrato v0:** responde 501 hasta la parte 2. Requiere sesión (una API key no sirve).",
+        "description": "Totales por categoría, motor y origen, serie temporal y F1 macro de cada motor.\n\nRequiere sesión (una API key no sirve). `by_category`, `by_model` y `by_source` traen\n**todas** las claves posibles, también las que valen 0. `total` coincide con el `total` de\n`GET /classifications` con las mismas fechas.\n\n`timeseries` cuenta por día UTC (`day`) o por semana ISO que empieza el lunes (`week`) y no\ntiene huecos: los periodos sin clasificaciones valen 0. Si falta `date_from` o `date_to`, la\nserie empieza o termina en la primera o última clasificación; sin ninguna fecha ni datos queda\nvacía. Un rango de más de 400 periodos responde 422 `invalid_request`.",
         "operationId": "metrics_summary_api_v1_metrics_summary_get",
         "parameters": [
           {
@@ -1993,26 +1952,6 @@
               }
             },
             "description": "Códigos posibles: `invalid_request`"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "examples": {
-                  "not_implemented": {
-                    "value": {
-                      "detail": {
-                        "code": "not_implemented",
-                        "message": "Funcionalidad aún no implementada."
-                      }
-                    }
-                  }
-                },
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Códigos posibles: `not_implemented`"
           }
         },
         "security": [

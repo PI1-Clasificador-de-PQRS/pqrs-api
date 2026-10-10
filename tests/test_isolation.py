@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
+from app.application.ports import ClassificationFilters
 from app.infrastructure.repositories.uow import SqlUnitOfWork
 from tests.factories import NOW, SeededOrg, seed_org
 
@@ -67,8 +68,13 @@ def test_classifications_never_leak_across_orgs(
 ):
     b = org_b.org.id
     assert uow.classifications.get(b, org_a.classification.id) is None
-    assert [c.id for c in uow.classifications.list(b)] == [org_b.classification.id]
-    assert uow.classifications.list(b, batch_id=uuid4()) == []
+    assert [
+        c.id for c in uow.classifications.search(b, ClassificationFilters(), limit=50, offset=0)
+    ] == [org_b.classification.id]
+    assert (
+        uow.classifications.search(b, ClassificationFilters(batch_id=uuid4()), limit=50, offset=0)
+        == []
+    )
 
 
 def test_classifications_batch_filter_is_scoped_by_org(db_session: Session):
@@ -76,12 +82,18 @@ def test_classifications_batch_filter_is_scoped_by_org(db_session: Session):
     org_a = seed_org(db_session, "A", batch_id=batch_id)
     org_b = seed_org(db_session, "B", batch_id=batch_id)  # mismo batch_id en otra org
     uow = SqlUnitOfWork(db_session)
-    assert [c.id for c in uow.classifications.list(org_b.org.id, batch_id=batch_id)] == [
-        org_b.classification.id
-    ]
-    assert [c.id for c in uow.classifications.list(org_a.org.id, batch_id=batch_id)] == [
-        org_a.classification.id
-    ]
+    assert [
+        c.id
+        for c in uow.classifications.search(
+            org_b.org.id, ClassificationFilters(batch_id=batch_id), limit=50, offset=0
+        )
+    ] == [org_b.classification.id]
+    assert [
+        c.id
+        for c in uow.classifications.search(
+            org_a.org.id, ClassificationFilters(batch_id=batch_id), limit=50, offset=0
+        )
+    ] == [org_a.classification.id]
 
 
 def test_session_mutations_are_scoped_by_org(
@@ -137,3 +149,15 @@ def test_api_not_found_for_other_org(app, client, db_session: Session, hasher) -
     missing = client.get(f"/_test/classifications/{uuid4()}")
     assert missing.status_code == 404
     assert missing.json() == response.json()
+
+
+def test_aggregates_never_count_other_orgs(db_session: Session):
+    org_a = seed_org(db_session, "A")
+    org_b = seed_org(db_session, "B")
+    repo = SqlUnitOfWork(db_session).classifications
+    everything = ClassificationFilters()
+    assert repo.count(org_a.org.id, everything) == 1
+    assert repo.counts(org_a.org.id, everything).total == 1
+    assert repo.counts(org_a.org.id, everything).by_category == {"Reclamo": 1}
+    assert len(repo.timeseries(org_b.org.id, everything, granularity="day")) == 1
+    assert repo.bounds(org_b.org.id, everything) == (NOW, NOW)
