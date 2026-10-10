@@ -4,20 +4,60 @@ API REST del MVP del **Clasificador automático de PQRS** (Proyecto Integrador I
 Antioquia). Clasifica Peticiones, Reclamos, Denuncias y Solicitudes de información. El sistema tiene
 tres repositorios: el clasificador (`pqrs-classifier`), esta API y el dashboard en Next.js.
 
-Estado: **E2 parte 1** — base del proyecto, autenticación, aislamiento por organización, CLI de
-administración y contrato OpenAPI v0. La clasificación real llega en la parte 2: hoy esos endpoints
-responden `501 not_implemented`.
+Estado: **E2 parte 2, en curso** — la parte 1 (autenticación, aislamiento por organización, CLI y
+contrato OpenAPI v0) está en `main`; la parte 2 se entrega en varios PR. Las rutas de clasificación,
+historial y métricas que aún no se han implementado responden `501 not_implemented`.
 
 ## Requisitos
 
 - [uv](https://docs.astral.sh/uv/) (instala Python 3.11 por su cuenta)
 - Docker con el plugin `docker compose`
+- Acceso de lectura al repositorio **privado** `PI1-Clasificador-de-PQRS/pqrs-classifier` (ver
+  [siguiente sección](#token-del-repositorio-privado-del-clasificador))
+
+## Token del repositorio privado del clasificador
+
+La API instala el paquete `pqrs-classifier` (tag `v0.1.0`) desde un repositorio privado de GitHub,
+y la imagen Docker descarga además `model.joblib` y `metadata.json` de su release. Hace falta un
+token de **solo lectura**:
+
+1. GitHub → *Settings* → *Developer settings* → *Personal access tokens* → *Fine-grained tokens* →
+   *Generate new token*.
+2. *Resource owner*: la organización `PI1-Clasificador-de-PQRS`; *Repository access*: *Only select
+   repositories* → `pqrs-classifier`; permisos de repositorio: **Contents: Read-only** (el permiso
+   *Metadata: Read-only* se añade solo). Ningún otro. Pon una caducidad corta.
+3. **CI**: en el repositorio `pqrs-api` → *Settings* → *Secrets and variables* → *Actions* → *New
+   repository secret* con el nombre `CLASSIFIER_REPO_TOKEN`. La CI lo usa para que `git` pueda leer
+   ese repositorio y para descargar el modelo en el job `slow`. Los PR desde forks no reciben el
+   secreto y no podrán instalar las dependencias.
+4. **Local**: `uv sync` necesita que `git` pueda leer el repositorio. Si ya tienes `gh auth login`
+   (o llaves SSH con acceso) no hace falta nada más. Si no, exporta el token solo para ese comando:
+   ```bash
+   export GIT_CONFIG_COUNT=1
+   export GIT_CONFIG_KEY_0="url.https://x-access-token:${CLASSIFIER_REPO_TOKEN}@github.com/PI1-Clasificador-de-PQRS/pqrs-classifier.insteadOf"
+   export GIT_CONFIG_VALUE_0="https://github.com/PI1-Clasificador-de-PQRS/pqrs-classifier"
+   uv sync
+   ```
+5. **Docker**: el token se pasa como *build secret* (nunca como `ARG` ni `ENV`, así no queda en una
+   capa de la imagen): `export CLASSIFIER_REPO_TOKEN=<token>` antes de `docker compose up --build`,
+   o `docker build --secret id=classifier_token,env=CLASSIFIER_REPO_TOKEN .`.
+
+Nunca subas el token al repositorio ni lo pegues en un issue o PR.
+
+### Dependencias de aprendizaje automático (grupo `ml`)
+
+Por defecto `uv sync` **no** instala torch ni sentence-transformers: las pruebas usan motores falsos
+(`pqrs_classifier.testing.FakeEngine`). El motor local real necesita el grupo `ml`
+(`uv sync --group ml`, torch de CPU en Linux) y los artefactos del release `v0.1.0` en `MODEL_DIR`.
+Las pruebas con el motor real están marcadas `slow` y corren en un job aparte de la CI (manual o
+nocturno): `SLOW_MODEL_DIR=<dir> uv run --group ml pytest -m slow`.
 
 ## Levantar el entorno local de cero
 
 ### Opción A: todo en contenedores
 
 ```bash
+export CLASSIFIER_REPO_TOKEN=<token>   # ver la sección anterior
 docker compose up -d --build   # PostgreSQL 16, migraciones (servicio `migrate`) y API en :8000
 curl localhost:8000/ready      # {"status":"ready"}
 ```
