@@ -33,17 +33,28 @@ class ClassifyResponse(ApiSchema):
 class BatchItem(ApiSchema):
     text: str = Field(
         description=(
-            "Texto de la PQRS (1–5000). No se valida aquí: un elemento inválido recibe su "
-            "propio `error` en la respuesta sin detener el resto del lote."
+            "Texto de la PQRS: de 1 a 5.000 caracteres. El esquema no lo restringe a propósito: "
+            "un texto vacío o de más de 5.000 caracteres no rechaza el lote con 422; ese "
+            "elemento devuelve su propio `error` (`invalid_request`) en `results` y el resto "
+            "se clasifica con normalidad."
         )
     )
-    external_ref: str | None = Field(default=None, description="Referencia externa (máx. 100).")
+    external_ref: str | None = Field(
+        default=None,
+        description=(
+            "Referencia del sistema que llama: máximo 100 caracteres. Si lo excede, ese "
+            "elemento devuelve su propio `error` (`invalid_request`) y el resto sigue."
+        ),
+    )
 
 
 class BatchRequest(ApiSchema):
     items: list[BatchItem] = Field(
         min_length=1,
-        description=("Entre 1 y 50 elementos. Más de 50 responde 413 `batch_too_large` (no 422)."),
+        description=(
+            "Entre 1 y 50 elementos. Una lista vacía responde 422 `invalid_request`; más de 50 "
+            "elementos responde 413 `batch_too_large` (no 422) y no se clasifica ninguno."
+        ),
     )
     model: Engine | None = Field(default=None, description=MODEL_FIELD_DESCRIPTION)
     batch_id: UUID | None = Field(
@@ -62,7 +73,8 @@ class BatchItemResult(ApiSchema):
     category: Category | None = None
     model_version: str | None = None
     error: BatchItemError | None = Field(
-        default=None, description="Presente solo si este elemento falló."
+        default=None,
+        description="Presente solo si este elemento falló; no afecta a los demás.",
     )
 
 
