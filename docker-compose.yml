@@ -1,0 +1,45 @@
+# Entorno local: PostgreSQL 16 + migraciones + API.
+#   docker compose up -d --build
+#   docker compose exec api pqrs-admin --help
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pqrs
+      POSTGRES_PASSWORD: pqrs
+      POSTGRES_DB: pqrs
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pqrs -d pqrs"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Tarea de un solo uso: aplica las migraciones y termina.
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://pqrs:pqrs@db:5432/pqrs
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://pqrs:pqrs@db:5432/pqrs
+      # Solo para desarrollo local por HTTP: en cualquier otro entorno déjala en true.
+      SESSION_COOKIE_SECURE: "false"
+      LOG_LEVEL: INFO
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
