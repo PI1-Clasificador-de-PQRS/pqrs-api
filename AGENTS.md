@@ -158,11 +158,23 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
 - El LLM solo ve los primeros `MAX_CARACTERES_TEXTO` (1200) caracteres de cada texto; el local ve el texto
   completo.
 
+## Clasificación (parte 2, PR b)
+
+- `ClassificationService` (`app/application/classification.py`): validar → `EngineGateway.select` → `anonymize`
+  → **una** llamada al motor → guardar → `commit`. `source`: sesión `ui` (individual) / `ui_batch`, API key `api`.
+- Límites: 1–5.000 caracteres por texto (tras `strip`), 50 elementos por lote (413 `batch_too_large`),
+  `external_ref` ≤ 100. En el lote la validación es por elemento, en código (`invalid_text`,
+  `invalid_external_ref`); el individual la hace el esquema (422).
+- Lote: si el motor falla, 503 para todo el bloque y **nada** de ese bloque se guarda (los bloques previos con el
+  mismo `batch_id` sí). `latency_ms` = latencia del bloque (anonimización + motor) repartida entre los
+  elementos válidos; `created_at` suma 1 µs por posición para conservar el orden en el historial.
+- El texto original solo existe en memoria durante la petición. Los logs de motores registran únicamente
+  `engine`, `exception_type` y `circuit_state`.
+
 ## Qué queda para la parte 2
 
 Hoy estas rutas están definidas con sus esquemas y responden `501 not_implemented` (tras
-autenticar): `POST /classify`, `POST /classify/batch`, `GET /classifications`,
-`GET /classifications/{id}` y `GET /metrics/summary`. `GET /models` y `GET /ready` ya son reales.
+autenticar): `GET /classifications`, `GET /classifications/{id}` y `GET /metrics/summary`.
 
-Pendiente: clasificación con anonimización, historial y métricas, límite de solicitudes, proxy de
-confianza del dashboard, límite de tamaño de cuerpo, imagen Docker con el modelo.
+Pendiente: historial y métricas, límite de solicitudes, proxy de confianza del dashboard, límite de
+tamaño de cuerpo, imagen Docker con el modelo.

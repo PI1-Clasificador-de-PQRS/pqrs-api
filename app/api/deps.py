@@ -4,11 +4,13 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request, Security
 from fastapi.security import APIKeyCookie, APIKeyHeader
+from pqrs_classifier.preprocessing import anonymize
 from sqlalchemy.orm import Session
 
 from app.api.client_ip import resolve_client_ip
 from app.api.errors import ApiError
 from app.application.auth import AuthService
+from app.application.classification import ClassificationService
 from app.application.ports import UnitOfWork
 from app.domain.errors import DomainError, ErrorCode
 from app.domain.principal import Principal
@@ -81,6 +83,14 @@ def get_auth_service(
         session_idle=timedelta(hours=settings.session_idle_hours),
         session_max=timedelta(hours=settings.session_max_hours),
     )
+
+
+def get_classification_service(
+    request: Request,
+    uow: Annotated[UnitOfWork, Depends(get_uow)],
+    registry: Annotated[EngineRegistry, Depends(get_registry)],
+) -> ClassificationService:
+    return ClassificationService(uow, registry, request.app.state.clock, anonymize)
 
 
 def client_ip(request: Request, settings: Settings) -> str | None:

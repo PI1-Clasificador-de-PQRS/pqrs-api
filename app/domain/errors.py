@@ -13,6 +13,8 @@ class ErrorCode(StrEnum):
     METHOD_NOT_ALLOWED = "method_not_allowed"
     BATCH_TOO_LARGE = "batch_too_large"
     INVALID_REQUEST = "invalid_request"
+    INVALID_TEXT = "invalid_text"
+    INVALID_EXTERNAL_REF = "invalid_external_ref"
     TOO_MANY_ATTEMPTS = "too_many_attempts"
     RATE_LIMITED = "rate_limited"
     NOT_IMPLEMENTED = "not_implemented"
