@@ -66,7 +66,7 @@ def settings() -> Settings:
         session_idle_hours=8,
         login_max_attempts=5,
         login_window_minutes=15,
-        trust_forwarded_for=False,
+        trusted_proxy_hops=0,
     )
 
 

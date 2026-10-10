@@ -84,6 +84,23 @@ curl -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
   -d '{"text":"Solicito copia de mi expediente"}' localhost:8000/api/v1/classify   # 501 hasta la parte 2
 ```
 
+## IP del cliente y proxies (`TRUSTED_PROXY_HOPS`)
+
+El límite de intentos de login usa la IP del cliente. `X-Forwarded-For` la puede escribir quien
+llama, así que **por defecto se ignora** (`TRUSTED_PROXY_HOPS=0`) y se usa la IP de la conexión.
+
+Si la API está detrás de proxies de confianza, `TRUSTED_PROXY_HOPS=N` toma la entrada N contando
+**desde la derecha** de `X-Forwarded-For`: la que agregó el proxy de confianza más externo. Lo que
+haya a su izquierda lo controla quien llama y se ignora. Si la cabecera tiene menos de N entradas o
+la entrada no es una IP, se usa la IP de la conexión.
+
+Cómo elegir N: cuenta los proxies de confianza entre el cliente y la API que agregan una entrada a la
+cabecera. Un N mayor que el real permite falsificar la IP; uno menor da la IP de un proxy y agrupa a
+todos los usuarios en un mismo cubo. En Azure Container Apps la ingress agrega una entrada y el proxy
+del dashboard debe agregar la IP real del navegador, así que para el tráfico del dashboard hacia la API
+por su ingress el valor esperado es `2` (`1` si solo hay ingress). Compruébalo en el despliegue. En
+local déjalo en `0`.
+
 ## Desarrollo
 
 ```bash

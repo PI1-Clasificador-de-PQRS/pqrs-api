@@ -125,11 +125,11 @@ def test_failures_expire_with_the_window(
     assert login(client).status_code == 200
 
 
-def test_ip_limit_uses_forwarded_for_only_when_trusted(
+def test_ip_limit_uses_the_forwarded_ip_when_hops_are_configured(
     db_session: Session, session_factory, clock, hasher: Argon2PasswordHasher, settings: Settings
 ) -> None:
     seed_login_user(db_session, hasher)
-    trusted = settings.model_copy(update={"trust_forwarded_for": True})
+    trusted = settings.model_copy(update={"trusted_proxy_hops": 1})
     client = TestClient(
         create_app(trusted, session_factory, clock=clock, hasher=hasher),
         base_url="https://testserver",
@@ -138,7 +138,7 @@ def test_ip_limit_uses_forwarded_for_only_when_trusted(
         r = client.post(
             LOGIN,
             json={"email": f"x{i}@example.com", "password": "incorrecta-incorrecta"},
-            headers={"X-Forwarded-For": "1.1.1.1, 10.0.0.1"},
+            headers={"X-Forwarded-For": "1.1.1.1"},
         )
         assert r.status_code == 401
     blocked = client.post(

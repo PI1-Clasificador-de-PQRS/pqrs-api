@@ -6,6 +6,7 @@ from fastapi import Depends, Header, Request, Security
 from fastapi.security import APIKeyCookie, APIKeyHeader
 from sqlalchemy.orm import Session
 
+from app.api.client_ip import resolve_client_ip
 from app.api.errors import ApiError
 from app.application.auth import AuthService
 from app.application.ports import UnitOfWork
@@ -76,11 +77,11 @@ def get_auth_service(
 
 
 def client_ip(request: Request, settings: Settings) -> str | None:
-    if settings.trust_forwarded_for:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip() or None
-    return request.client.host if request.client else None
+    # Un proxy puede agregar su entrada en una línea nueva en vez de añadirla a la existente:
+    # se unen todas antes de contar desde la derecha.
+    forwarded_for = ",".join(request.headers.getlist("x-forwarded-for")) or None
+    peer = request.client.host if request.client else None
+    return resolve_client_ip(forwarded_for, peer, settings.trusted_proxy_hops)
 
 
 def _domain_to_api_error(exc: DomainError) -> ApiError:
