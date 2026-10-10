@@ -1,12 +1,15 @@
+import json
 from datetime import timedelta
+from typing import Any
 
 from fastapi import FastAPI
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.errors import install_error_handlers
+from app.api.errors import DEFAULT_MESSAGES, error_body, install_error_handlers
 from app.api.middleware import RequestLogMiddleware
-from app.api.routers import auth, health, me
+from app.api.routers import auth, classifications, classify, health, me, metrics, models
 from app.application.ports import Clock, PasswordHasher
+from app.domain.errors import ErrorCode
 from app.infrastructure.config.settings import Settings, get_settings
 from app.infrastructure.db.session import get_sessionmaker
 from app.infrastructure.logging import configure_logging
@@ -16,6 +19,89 @@ from app.infrastructure.security.rate_limit import InMemoryLoginRateLimiter
 
 API_VERSION = "0.1.0"
 API_PREFIX = "/api/v1"
+
+OPENAPI_TAGS = [
+    {"name": "auth", "description": "Inicio y cierre de sesión, y datos de la sesión."},
+    {"name": "models", "description": "Motores de clasificación disponibles."},
+    {"name": "classify", "description": "Clasificación de PQRS (sesión o API key)."},
+    {"name": "history", "description": "Historial de clasificaciones (solo sesión)."},
+    {"name": "metrics", "description": "Métricas agregadas (solo sesión)."},
+    {"name": "ops", "description": "Sondas de salud para el orquestador."},
+]
+
+API_DESCRIPTION = """\
+API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de \
+información).
+
+**Contrato v0.** `GET /models`, `POST /classify`, `POST /classify/batch`, `GET /classifications`, \
+`GET /classifications/{id}` y `GET /metrics/summary` están definidos pero responden \
+`501 not_implemented` hasta la parte 2.
+
+## Credenciales
+
+* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla \
+con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.
+* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** \
+(`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.
+* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la \
+cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con \
+API key están exentos.
+
+Toda credencial se resuelve en una organización; un recurso de otra organización responde 404.
+
+## Errores
+
+Todos los errores tienen la forma `{"detail": {"code": "<código_estable>", "message": "<texto>"}}`.
+
+| HTTP | Códigos |
+|---|---|
+| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |
+| 403 | `csrf_required` |
+| 404 | `not_found` |
+| 413 | `batch_too_large` |
+| 422 | `invalid_request` |
+| 429 | `too_many_attempts`, `rate_limited` |
+| 501 | `not_implemented` |
+| 503 | `llm_unavailable`, `classifier_unavailable` |
+"""
+
+
+def _use_single_error_format(app: FastAPI) -> None:
+    """Sustituye el 422 por defecto de FastAPI (``HTTPValidationError``) por el formato único.
+
+    En ejecución las validaciones ya responden ``{"detail": {"code": "invalid_request", ...}}``;
+    esto hace que el OpenAPI diga lo mismo.
+    """
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        schema = original()
+        invalid_request = {
+            "description": "Códigos posibles: `invalid_request`",
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                    "examples": {
+                        "invalid_request": {
+                            "value": error_body(
+                                ErrorCode.INVALID_REQUEST,
+                                DEFAULT_MESSAGES[ErrorCode.INVALID_REQUEST],
+                            )
+                        }
+                    },
+                }
+            },
+        }
+        for operations in schema.get("paths", {}).values():
+            for operation in operations.values():
+                response = operation.get("responses", {}).get("422")
+                if response is not None and "HTTPValidationError" in json.dumps(response):
+                    operation["responses"]["422"] = invalid_request
+        for name in ("HTTPValidationError", "ValidationError"):
+            schema.get("components", {}).get("schemas", {}).pop(name, None)
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
 
 
 def create_app(
@@ -30,6 +116,8 @@ def create_app(
         title="pqrs-api",
         version=API_VERSION,
         summary="API del Clasificador automático de PQRS",
+        description=API_DESCRIPTION,
+        openapi_tags=OPENAPI_TAGS,
     )
     app.state.settings = settings
     app.state.session_factory = session_factory or get_sessionmaker()
@@ -41,11 +129,16 @@ def create_app(
         clock=clock,
     )
 
+    _use_single_error_format(app)
     install_error_handlers(app)
     app.add_middleware(RequestLogMiddleware)
     app.include_router(health.router)
     app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
+    app.include_router(models.router, prefix=API_PREFIX)
+    app.include_router(classify.router, prefix=API_PREFIX)
+    app.include_router(classifications.router, prefix=API_PREFIX)
+    app.include_router(metrics.router, prefix=API_PREFIX)
     return app
 
 
