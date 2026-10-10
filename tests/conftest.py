@@ -1,10 +1,16 @@
 from collections.abc import Iterator
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.infrastructure.config.settings import Settings
+from app.infrastructure.security.passwords import Argon2PasswordHasher
+from app.main import create_app
 from tests.db_utils import TEST_DATABASE_URL, create_database, migrate
+from tests.fakes import FakeClock
 
 
 @pytest.fixture(scope="session")
@@ -44,3 +50,42 @@ def db_session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
     session = session_factory()
     yield session
     session.close()
+
+
+@pytest.fixture(scope="session")
+def hasher() -> Argon2PasswordHasher:
+    return Argon2PasswordHasher()
+
+
+@pytest.fixture
+def settings() -> Settings:
+    return Settings(
+        database_url=TEST_DATABASE_URL,
+        session_cookie_name="pqrs_session",
+        session_cookie_secure=True,
+        session_idle_hours=8,
+        login_max_attempts=5,
+        login_window_minutes=15,
+        trust_forwarded_for=False,
+    )
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+def app(
+    settings: Settings,
+    session_factory: sessionmaker[Session],
+    clock: FakeClock,
+    hasher: Argon2PasswordHasher,
+) -> FastAPI:
+    return create_app(settings, session_factory, clock=clock, hasher=hasher)
+
+
+@pytest.fixture
+def client(app: FastAPI) -> TestClient:
+    # https para que la cookie Secure se reenvíe entre peticiones.
+    return TestClient(app, base_url="https://testserver")

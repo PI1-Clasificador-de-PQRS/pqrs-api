@@ -99,3 +99,41 @@ def test_session_mutations_are_scoped_by_org(
 def test_a_resource_of_a_is_none_for_b(uow: SqlUnitOfWork, org_a: SeededOrg, org_b: SeededOrg):
     """El ``None`` que la capa API convierte en 404 (ver test_api_not_found_for_other_org)."""
     assert uow.classifications.get(org_b.org.id, org_a.classification.id) is None
+
+
+def test_api_not_found_for_other_org(app, client, db_session: Session, hasher) -> None:
+    """La capa API convierte el ``None`` del repositorio en 404 (ruta solo de pruebas)."""
+    from typing import Annotated
+    from uuid import UUID
+
+    from fastapi import Depends
+
+    from app.api.deps import get_uow, require_session
+    from app.api.errors import or_404
+    from app.application.ports import UnitOfWork
+    from app.domain.principal import Principal
+    from tests.factories import seed_login_user
+
+    @app.get("/_test/classifications/{classification_id}")
+    def read_classification(
+        classification_id: UUID,
+        principal: Annotated[Principal, Depends(require_session)],
+        uow: Annotated[UnitOfWork, Depends(get_uow)],
+    ) -> dict[str, str]:
+        found = or_404(uow.classifications.get(principal.org_id, classification_id))
+        return {"id": str(found.id)}
+
+    other = seed_org(db_session, "A")  # clasificación de la organización A
+    seed_login_user(db_session, hasher, email="b@example.com", org_name="B")
+    login = client.post(
+        "/api/v1/auth/login", json={"email": "b@example.com", "password": "contraseña-segura-1"}
+    )
+    assert login.status_code == 200
+
+    response = client.get(f"/_test/classifications/{other.classification.id}")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "not_found"
+    # Un id inexistente se comporta exactamente igual que uno de otra organización.
+    missing = client.get(f"/_test/classifications/{uuid4()}")
+    assert missing.status_code == 404
+    assert missing.json() == response.json()

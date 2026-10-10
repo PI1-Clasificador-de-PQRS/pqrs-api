@@ -114,11 +114,20 @@ class ClassificationRepository(Protocol):
 class UnitOfWork(Protocol):
     """Agrupa los repositorios de una transacción. El ``commit`` es siempre explícito."""
 
-    organizations: OrganizationRepository
-    users: UserRepository
-    sessions: SessionRepository
-    api_keys: ApiKeyRepository
-    classifications: ClassificationRepository
+    @property
+    def organizations(self) -> OrganizationRepository: ...
+
+    @property
+    def users(self) -> UserRepository: ...
+
+    @property
+    def sessions(self) -> SessionRepository: ...
+
+    @property
+    def api_keys(self) -> ApiKeyRepository: ...
+
+    @property
+    def classifications(self) -> ClassificationRepository: ...
 
     def commit(self) -> None: ...
 

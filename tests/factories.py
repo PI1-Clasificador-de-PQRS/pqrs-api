@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.domain.entities import ApiKey, AuthSession, Classification, Organization, User
+from app.infrastructure.db.models import OrganizationModel
 from app.infrastructure.repositories.uow import SqlUnitOfWork
+from app.infrastructure.security.passwords import Argon2PasswordHasher
 
 NOW = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 
@@ -65,3 +68,29 @@ def seed_org(
     )
     uow.commit()
     return SeededOrg(org, user, api_key, session, classification)
+
+
+def seed_login_user(
+    db: Session,
+    hasher: Argon2PasswordHasher,
+    *,
+    email: str = "ana@example.com",
+    password: str = "contraseña-segura-1",
+    org_name: str = "Org Login",
+    org_active: bool = True,
+    user_active: bool = True,
+) -> tuple[Organization, User]:
+    """Organización con un usuario que puede iniciar sesión con ``password``."""
+    uow = SqlUnitOfWork(db)
+    org = uow.organizations.add(name=org_name, created_at=NOW)
+    user = uow.users.add(
+        org.id, email=email, name="Ana Pérez", password_hash=hasher.hash(password), created_at=NOW
+    )
+    if not user_active:
+        uow.users.deactivate(org.id, user.id)
+    if not org_active:
+        db.execute(
+            update(OrganizationModel).where(OrganizationModel.id == org.id).values(active=False)
+        )
+    uow.commit()
+    return org, user
