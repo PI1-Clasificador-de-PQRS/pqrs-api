@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from app.domain.credentials import generate_api_key, hash_token
 from app.domain.entities import ApiKey, AuthSession, Classification, Organization, User
 from app.infrastructure.db.models import OrganizationModel
 from app.infrastructure.repositories.uow import SqlUnitOfWork
@@ -94,3 +95,13 @@ def seed_login_user(
         )
     uow.commit()
     return org, user
+
+
+def seed_api_key(db: Session, org_id: UUID, name: str = "Integración") -> tuple[str, ApiKey]:
+    """Crea una clave y devuelve ``(clave_en_claro, ApiKey)``."""
+    raw, prefix = generate_api_key()
+    key = SqlUnitOfWork(db).api_keys.add(
+        org_id, name=name, prefix=prefix, key_hash=hash_token(raw), created_at=NOW
+    )
+    db.commit()
+    return raw, key

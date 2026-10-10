@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import Depends, Header, Request, Security
-from fastapi.security import APIKeyCookie
+from fastapi.security import APIKeyCookie, APIKeyHeader
 from sqlalchemy.orm import Session
 
 from app.api.errors import ApiError
@@ -23,6 +23,14 @@ _session_cookie_scheme = APIKeyCookie(
     name=get_settings().session_cookie_name,
     scheme_name="SessionCookie",
     description="Sesión de usuario. El dashboard (BFF) reenvía la cookie a la API.",
+    auto_error=False,
+)
+
+
+_api_key_scheme = APIKeyHeader(
+    name="X-API-Key",
+    scheme_name="ApiKeyAuth",
+    description="Clave de un sistema externo (`pqrs_...`). Solo permite clasificar.",
     auto_error=False,
 )
 
@@ -128,4 +136,28 @@ def require_session(
         return principal
     if request.headers.get("x-api-key"):
         raise ApiError(ErrorCode.SESSION_REQUIRED)
+    raise ApiError(ErrorCode.MISSING_CREDENTIALS)
+
+
+def require_session_or_key(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+    csrf: CsrfHeader = None,
+    _cookie: Annotated[str | None, Security(_session_cookie_scheme)] = None,
+    _api_key: Annotated[str | None, Security(_api_key_scheme)] = None,
+) -> Principal:
+    """Acepta una sesión (cookie) o una API key. Si llegan ambas, gana la API key.
+
+    La cabecera CSRF solo se exige en la rama de cookie.
+    """
+    raw_key = request.headers.get("x-api-key")
+    if raw_key:
+        try:
+            return service.resolve_api_key(raw_key)
+        except DomainError as exc:
+            raise _domain_to_api_error(exc) from exc
+    principal = _principal_from_cookie(request, settings, service, csrf)
+    if principal is not None:
+        return principal
     raise ApiError(ErrorCode.MISSING_CREDENTIALS)

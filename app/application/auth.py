@@ -122,6 +122,22 @@ class AuthService:
             org_id=session.org_id, credential_type=CredentialType.SESSION, user_id=user.id
         )
 
+    def resolve_api_key(self, raw_key: str) -> Principal:
+        now = self._clock.now()
+        key = self._uow.api_keys.get_by_hash(hash_token(raw_key))
+        if key is None or not key.active or key.revoked_at is not None:
+            raise _invalid_credentials()
+        org = self._uow.organizations.get(key.org_id)
+        if org is None or not org.active:
+            raise _invalid_credentials()
+
+        if key.last_used_at is None or now - key.last_used_at >= TOUCH_INTERVAL:
+            self._uow.api_keys.touch_last_used(key.org_id, key.id, now)
+            self._uow.commit()
+        return Principal(
+            org_id=key.org_id, credential_type=CredentialType.API_KEY, api_key_id=key.id
+        )
+
     def logout(self, org_id: UUID, token: str) -> None:
         session = self._uow.sessions.get_by_token_hash(hash_token(token))
         if session is not None and session.org_id == org_id:
