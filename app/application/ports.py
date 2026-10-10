@@ -8,7 +8,7 @@ que resuelven una credencial antes de conocer la organización: ``UserRepository
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -89,6 +89,28 @@ class ApiKeyRepository(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class ClassificationFilters:
+    """Filtros comunes del historial y de las métricas (se aplican igual en ambos)."""
+
+    created_from: datetime | None = None  # inclusive
+    created_before: datetime | None = None  # exclusivo
+    category: str | None = None
+    engine: str | None = None
+    source: str | None = None
+    batch_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationCounts:
+    """Conteos agregados en SQL; solo traen las claves que tienen filas."""
+
+    total: int
+    by_category: dict[str, int]
+    by_engine: dict[str, int]
+    by_source: dict[str, int]
+
+
 class ClassificationRepository(Protocol):
     def add(
         self,
@@ -110,9 +132,27 @@ class ClassificationRepository(Protocol):
 
     def get(self, org_id: UUID, classification_id: UUID) -> Classification | None: ...
 
-    def list(
-        self, org_id: UUID, *, limit: int = 50, offset: int = 0, batch_id: UUID | None = None
-    ) -> list[Classification]: ...
+    def search(
+        self, org_id: UUID, filters: ClassificationFilters, *, limit: int, offset: int
+    ) -> list[Classification]:
+        """Del más reciente al más antiguo."""
+        ...
+
+    def count(self, org_id: UUID, filters: ClassificationFilters) -> int: ...
+
+    def counts(self, org_id: UUID, filters: ClassificationFilters) -> ClassificationCounts: ...
+
+    def timeseries(
+        self, org_id: UUID, filters: ClassificationFilters, *, granularity: str
+    ) -> dict[date, int]:
+        """Conteo por periodo (``day`` o ``week``, UTC) solo de los periodos con filas."""
+        ...
+
+    def bounds(
+        self, org_id: UUID, filters: ClassificationFilters
+    ) -> tuple[datetime, datetime] | None:
+        """Primera y última marca de tiempo de las filas filtradas; ``None`` si no hay."""
+        ...
 
 
 class UnitOfWork(Protocol):

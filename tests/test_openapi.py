@@ -18,7 +18,6 @@ CONTRACT_CODES = {
     "invalid_request",
     "too_many_attempts",
     "rate_limited",
-    "not_implemented",
     "llm_unavailable",
     "classifier_unavailable",
 }

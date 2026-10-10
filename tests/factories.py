@@ -105,3 +105,34 @@ def seed_api_key(db: Session, org_id: UUID, name: str = "Integración") -> tuple
     )
     db.commit()
     return raw, key
+
+
+def seed_row(
+    db: Session,
+    org_id: UUID,
+    *,
+    created_at: datetime = NOW,
+    category: str = "Reclamo",
+    engine: str = "classifier",
+    source: str = "api",
+    batch_id: UUID | None = None,
+    text: str = "Texto anonimizado",
+) -> Classification:
+    """Una clasificación con los valores indicados (sin tocar motores)."""
+    row = SqlUnitOfWork(db).classifications.add(
+        org_id,
+        text_anonymized=text,
+        category=category,
+        engine=engine,
+        model_version="v1",
+        prompt_version=None,
+        source=source,
+        batch_id=batch_id,
+        external_ref=None,
+        latency_ms=5,
+        user_id=None,
+        api_key_id=None,
+        created_at=created_at,
+    )
+    db.commit()
+    return row

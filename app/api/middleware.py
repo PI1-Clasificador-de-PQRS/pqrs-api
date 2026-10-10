@@ -11,7 +11,7 @@ logger = logging.getLogger("pqrs.access")
 
 
 def _level_for(status: int) -> int:
-    if status in (501, 503):  # esperados: contrato v0 sin implementar, motor no disponible
+    if status == 503:  # esperado: un motor no está disponible
         return logging.WARNING
     return logging.ERROR if status >= 500 else logging.INFO
 

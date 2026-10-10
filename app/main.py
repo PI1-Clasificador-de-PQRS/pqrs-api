@@ -40,9 +40,6 @@ API_DESCRIPTION = """\
 API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de \
 información).
 
-**Contrato en construcción (E2 parte 2).** `GET /classifications`, `GET /classifications/{id}` y \
-`GET /metrics/summary` están definidos pero responden `501 not_implemented` hasta el siguiente PR.
-
 ## Credenciales
 
 * **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla \
@@ -67,7 +64,6 @@ Todos los errores tienen la forma `{"detail": {"code": "<código_estable>", "mes
 | 413 | `batch_too_large` |
 | 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |
 | 429 | `too_many_attempts`, `rate_limited` |
-| 501 | `not_implemented` |
 | 503 | `llm_unavailable`, `classifier_unavailable` |
 """
 
