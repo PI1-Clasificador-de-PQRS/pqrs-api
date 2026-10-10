@@ -10,6 +10,7 @@ from app.infrastructure.config.settings import Settings
 from app.infrastructure.db.models import SessionModel, UserModel
 from app.infrastructure.security.passwords import Argon2PasswordHasher
 from app.main import create_app
+from tests.conftest import PROXY_HEADERS
 from tests.factories import seed_login_user
 
 LOGIN = "/api/v1/auth/login"
@@ -133,6 +134,7 @@ def proxied_client(
     return TestClient(
         create_app(configured, session_factory, clock=clock, hasher=hasher),
         base_url="https://testserver",
+        headers=PROXY_HEADERS,
     )
 
 

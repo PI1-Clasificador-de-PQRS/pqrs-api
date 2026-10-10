@@ -20,6 +20,7 @@ _SESSION_ERRORS = (
     ErrorCode.INVALID_CREDENTIALS,
     ErrorCode.SESSION_EXPIRED,
     ErrorCode.SESSION_REQUIRED,
+    ErrorCode.PROXY_REQUIRED,
 )
 
 

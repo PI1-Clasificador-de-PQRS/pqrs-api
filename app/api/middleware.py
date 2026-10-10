@@ -1,10 +1,13 @@
+import json
 import logging
 import time
 import uuid
 
-from starlette.datastructures import MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.api.errors import DEFAULT_MESSAGES, STATUS_BY_CODE, error_body
+from app.domain.errors import ErrorCode
 from app.infrastructure.logging import request_id_var
 
 logger = logging.getLogger("pqrs.access")
@@ -58,3 +61,87 @@ class RequestLogMiddleware:
                 },
             )
             request_id_var.reset(token)
+
+
+class _PayloadTooLarge(Exception):
+    pass
+
+
+class BodyLimitMiddleware:
+    """Rechaza con 413 ``payload_too_large`` los cuerpos de más de ``max_bytes``.
+
+    Verifica ``Content-Length`` antes de leer nada y, además, cuenta los bytes del cuerpo que
+    llegan (cuerpos con ``Transfer-Encoding: chunked`` o con un ``Content-Length`` falso). Es ASGI
+    puro y nunca guarda ni registra el cuerpo.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        declared = Headers(scope=scope).get("content-length")
+        if declared is not None:
+            try:
+                too_large = int(declared) > self.max_bytes
+            except ValueError:
+                too_large = False  # el servidor HTTP ya rechaza un Content-Length inválido
+            if too_large:
+                await self._reject(send)
+                return
+
+        received = 0
+        exceeded = False
+        response_started = False
+        replacement_sent = False
+
+        async def counting_receive() -> Message:
+            nonlocal received, exceeded
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    exceeded = True
+                    raise _PayloadTooLarge
+            return message
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started, replacement_sent
+            if exceeded:
+                # FastAPI convierte cualquier fallo al leer el cuerpo en un 400: se sustituye su
+                # respuesta por el 413 (y se descarta lo que siga de ella).
+                if not replacement_sent:
+                    replacement_sent = True
+                    await self._reject(send)
+                return
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, counting_receive, tracking_send)
+        except _PayloadTooLarge:
+            if response_started:
+                raise
+            if not replacement_sent:
+                await self._reject(send)
+
+    async def _reject(self, send: Send) -> None:
+        code = ErrorCode.PAYLOAD_TOO_LARGE
+        body = json.dumps(error_body(code, DEFAULT_MESSAGES[code])).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": STATUS_BY_CODE[code],
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"connection", b"close"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})

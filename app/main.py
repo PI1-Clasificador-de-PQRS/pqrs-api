@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.errors import DEFAULT_MESSAGES, error_body, install_error_handlers
-from app.api.middleware import RequestLogMiddleware
+from app.api.middleware import BodyLimitMiddleware, RequestLogMiddleware
 from app.api.routers import auth, classifications, classify, health, me, metrics, models
 from app.application.ports import Clock, PasswordHasher
 from app.domain.errors import ErrorCode
@@ -21,6 +21,7 @@ from app.infrastructure.ner import check_ner_available
 from app.infrastructure.security.clock import SystemClock
 from app.infrastructure.security.passwords import Argon2PasswordHasher
 from app.infrastructure.security.rate_limit import InMemoryLoginRateLimiter
+from app.infrastructure.security.request_rate_limit import InMemoryRequestRateLimiter
 
 logger = logging.getLogger("pqrs.api")
 
@@ -49,6 +50,19 @@ con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta AP
 * **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la \
 cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con \
 API key están exentos.
+* **Proxy de confianza:** la API es pública, así que el login, el logout y toda petición \
+autenticada con la cookie exigen además `X-PQRS-Proxy-Secret` (el secreto compartido con el \
+dashboard); sin un secreto válido responden 403 `proxy_required`. El proxy envía también la IP \
+del navegador en `X-PQRS-Client-IP` (solo se usa con un secreto válido). Las peticiones con \
+`X-API-Key` no pasan por el proxy, y el proxy **no** debe reenviar `X-API-Key` desde el navegador.
+
+## Límites
+
+* **Tamaño del cuerpo:** `MAX_BODY_BYTES` (1 MiB por defecto); más responde 413 `payload_too_large`.
+* **Solicitudes** a `/models`, `/classify` y `/classify/batch`: por minuto y por API key o por \
+usuario (nunca por IP); al superarlo, 429 `rate_limited` con `Retry-After`.
+* **Login:** intentos fallidos limitados por (correo, IP), por IP y por correo; 429 \
+`too_many_attempts` con `Retry-After`.
 
 Toda credencial se resuelve en una organización; un recurso de otra organización responde 404.
 
@@ -59,9 +73,9 @@ Todos los errores tienen la forma `{"detail": {"code": "<código_estable>", "mes
 | HTTP | Códigos |
 |---|---|
 | 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |
-| 403 | `csrf_required` |
+| 403 | `csrf_required`, `proxy_required` |
 | 404 | `not_found` |
-| 413 | `batch_too_large` |
+| 413 | `batch_too_large`, `payload_too_large` |
 | 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |
 | 429 | `too_many_attempts`, `rate_limited` |
 | 503 | `llm_unavailable`, `classifier_unavailable` |
@@ -143,13 +157,20 @@ def create_app(
     app.state.rate_limiter = InMemoryLoginRateLimiter(
         max_attempts=settings.login_max_attempts,
         max_attempts_per_ip=settings.login_max_attempts_per_ip,
+        max_attempts_per_email=settings.login_max_attempts_per_email,
         window=timedelta(minutes=settings.login_window_minutes),
         max_keys=settings.login_limiter_max_keys,
         clock=clock,
     )
 
+    app.state.request_limiter = InMemoryRequestRateLimiter(
+        window=timedelta(minutes=1), max_keys=settings.login_limiter_max_keys, clock=clock
+    )
+
     _use_single_error_format(app)
     install_error_handlers(app)
+    # El último middleware agregado es el más externo: el de log ve también los 413.
+    app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_body_bytes)
     app.add_middleware(RequestLogMiddleware)
     app.include_router(health.router)
     app.include_router(auth.router, prefix=API_PREFIX)
@@ -164,5 +185,6 @@ def create_app(
 def get_app() -> FastAPI:
     """Fábrica para uvicorn (`--factory`): configura el logging y crea la aplicación."""
     settings = get_settings()
+    settings.require_runtime_config()  # sin PROXY_SHARED_SECRET (fuera de desarrollo) no arranca
     configure_logging(settings.log_level)
     return create_app(settings)

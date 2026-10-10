@@ -6,6 +6,7 @@ from app.api.deps import (
     client_ip,
     get_auth_service,
     get_settings_dep,
+    require_proxy,
     require_session,
 )
 from app.api.errors import ApiError, error_responses
@@ -22,8 +23,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/login",
     summary="Iniciar sesión",
     response_model=MeResponse,
+    dependencies=[Depends(require_proxy)],
     responses=error_responses(
-        ErrorCode.INVALID_CREDENTIALS, ErrorCode.TOO_MANY_ATTEMPTS, ErrorCode.INVALID_REQUEST
+        ErrorCode.PROXY_REQUIRED,
+        ErrorCode.INVALID_CREDENTIALS,
+        ErrorCode.TOO_MANY_ATTEMPTS,
+        ErrorCode.INVALID_REQUEST,
     ),
 )
 def login(
@@ -36,7 +41,9 @@ def login(
     """Valida las credenciales y fija la cookie de sesión (`HttpOnly`, `SameSite=Lax`).
 
     Cualquier fallo (contraseña incorrecta, usuario inexistente o inactivo, organización
-    inactiva) responde igual: 401 `invalid_credentials`. No exige `X-PQRS-CSRF`.
+    inactiva) responde igual: 401 `invalid_credentials`. No exige `X-PQRS-CSRF`, pero sí el
+    secreto del proxy (`X-PQRS-Proxy-Secret`): sin él, 403 `proxy_required`. La IP del navegador
+    (`X-PQRS-Client-IP`) alimenta el límite de intentos.
     """
     try:
         result = service.login(
@@ -62,7 +69,9 @@ def login(
     "/logout",
     summary="Cerrar sesión",
     status_code=204,
+    dependencies=[Depends(require_proxy)],
     responses=error_responses(
+        ErrorCode.PROXY_REQUIRED,
         ErrorCode.MISSING_CREDENTIALS,
         ErrorCode.SESSION_EXPIRED,
         ErrorCode.SESSION_REQUIRED,

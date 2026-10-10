@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_classification_service, require_session_or_key
+from app.api.deps import get_classification_service, require_session_or_key_limited
 from app.api.errors import error_responses
 from app.api.schemas.classify import (
     BatchItemError,
@@ -24,6 +24,8 @@ _AUTH_ERRORS = (
     ErrorCode.INVALID_CREDENTIALS,
     ErrorCode.SESSION_EXPIRED,
     ErrorCode.CSRF_REQUIRED,
+    ErrorCode.PROXY_REQUIRED,
+    ErrorCode.PAYLOAD_TOO_LARGE,
     ErrorCode.INVALID_REQUEST,
     ErrorCode.RATE_LIMITED,
     ErrorCode.LLM_UNAVAILABLE,
@@ -87,7 +89,7 @@ bloque repartida entre sus elementos válidos.
 )
 def classify(
     body: ClassifyRequest,
-    principal: Annotated[Principal, Depends(require_session_or_key)],
+    principal: Annotated[Principal, Depends(require_session_or_key_limited)],
     service: Annotated[ClassificationService, Depends(get_classification_service)],
 ) -> ClassifyResponse:
     """Clasifica un texto en una de las 4 categorías. No devuelve confianza.
@@ -118,7 +120,7 @@ def classify(
 )
 def classify_batch(
     body: BatchRequest,
-    principal: Annotated[Principal, Depends(require_session_or_key)],
+    principal: Annotated[Principal, Depends(require_session_or_key_limited)],
     service: Annotated[ClassificationService, Depends(get_classification_service)],
 ) -> BatchResponse:
     """Clasifica un lote de hasta 50 textos.

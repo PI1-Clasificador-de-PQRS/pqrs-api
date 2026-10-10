@@ -19,13 +19,26 @@ class Settings(BaseSettings):
     # Fallos permitidos por par (email, IP) y por IP sola, dentro de la misma ventana.
     login_max_attempts: int = Field(default=5, ge=1)
     login_max_attempts_per_ip: int = Field(default=20, ge=1)
+    # Respaldo frente a ataques repartidos entre muchas IP contra un mismo correo.
+    login_max_attempts_per_email: int = Field(default=50, ge=1)
     login_window_minutes: int = Field(default=15, ge=1)
-    # Tope de claves del limitador en memoria (cada fallo usa dos: el par y la IP).
-    login_limiter_max_keys: int = Field(default=10_000, ge=2)
+    # Tope de claves del limitador en memoria (cada fallo usa tres: par, IP y correo).
+    login_limiter_max_keys: int = Field(default=10_000, ge=3)
     log_level: str = "INFO"
     # Proxies de confianza que agregan una entrada a X-Forwarded-For entre el cliente y la API.
     # 0: se ignora la cabecera y se usa la IP de la conexión.
     trusted_proxy_hops: int = Field(default=0, ge=0)
+
+    # Secreto compartido con el proxy del dashboard (cabecera X-PQRS-Proxy-Secret). Obligatorio
+    # fuera de ``development``; sin él la API no arranca (ver ``require_runtime_config``).
+    proxy_shared_secret: SecretStr | None = None
+
+    # Solicitudes por minuto a /classify, /classify/batch y /models: por API key o por usuario,
+    # nunca por IP. En memoria (una sola réplica).
+    rate_limit_key_per_minute: int = Field(default=60, ge=1)
+    rate_limit_user_per_minute: int = Field(default=120, ge=1)
+    # Tamaño máximo del cuerpo de una petición, en bytes.
+    max_body_bytes: int = Field(default=1_048_576, ge=1)
 
     # Directorio con model.joblib y metadata.json del motor local (pqrs_classifier).
     model_dir: Path = Path("/opt/model")
@@ -53,6 +66,19 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.environment.strip().lower() == "development"
+
+    def require_runtime_config(self) -> None:
+        """Falla si falta una configuración obligatoria para servir tráfico.
+
+        Se llama al arrancar (``get_app``), no al construir ``Settings``: la CLI, Alembic y los
+        scripts también leen la configuración y no necesitan el secreto del proxy.
+        """
+        secret = self.proxy_shared_secret
+        if not self.is_development and (secret is None or not secret.get_secret_value()):
+            raise RuntimeError(
+                "PROXY_SHARED_SECRET es obligatorio fuera de ENVIRONMENT=development: sin él, "
+                "cualquiera podría falsificar la IP del navegador llamando directo a la API."
+            )
 
     def llm_env(self) -> dict[str, str]:
         """Variables ``LLM_*`` en el formato que espera ``LLMEngine.from_env``."""

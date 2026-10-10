@@ -120,13 +120,24 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
     real del navegador, así que para el tráfico del dashboard el valor esperado es `2` (`1` si solo
     hay ingress). Debe comprobarse en el despliegue.
 
+- **Proxy de confianza del dashboard:** la API es pública, así que la IP del navegador solo se acepta
+  de un proxy autenticado. `PROXY_SHARED_SECRET` (cabecera `X-PQRS-Proxy-Secret`, comparación con
+  `hmac.compare_digest`) es obligatorio salvo con `ENVIRONMENT=development` (si falta, `get_app()` no
+  arranca: `Settings.require_runtime_config`). Lo exigen el login, el logout y toda petición
+  autenticada con cookie (403 `proxy_required`, **antes** de resolver la sesión); las peticiones con
+  `X-API-Key` no. Con secreto válido y `X-PQRS-Client-IP` que sea una IP se usa esa (`app/api/deps.py:
+  client_ip`); si no, `TRUSTED_PROXY_HOPS`. En Azure el valor recomendado pasa a ser `1` (solo la
+  ingress). El proxy **no** debe reenviar `X-API-Key` desde el navegador (gana sobre la cookie).
+  En `development` sin secreto el chequeo se desactiva (con secreto se exige siempre).
 - **Límite de intentos de login** (`app/infrastructure/security/rate_limit.py`, en memoria, una sola
-  réplica): dos contadores por fallo en la misma ventana (`LOGIN_WINDOW_MINUTES`): el par **(email
-  normalizado, IP)** con `LOGIN_MAX_ATTEMPTS` (5) y la **IP sola** con `LOGIN_MAX_ATTEMPTS_PER_IP`
-  (20). **No hay límite por email solo**: permitiría que un tercero bloquee a un usuario real desde
-  otra IP. Un login correcto limpia el contador del par, no el de la IP. Al superarlo, 429
-  `too_many_attempts` (con `Retry-After`).
-  - La memoria está acotada por `LOGIN_LIMITER_MAX_KEYS` (10.000, mínimo 2; cada fallo usa dos
+  réplica): tres contadores por fallo en la misma ventana (`LOGIN_WINDOW_MINUTES`): el par **(email
+  normalizado, IP)** con `LOGIN_MAX_ATTEMPTS` (5), la **IP sola** con `LOGIN_MAX_ATTEMPTS_PER_IP`
+  (20) y el **email solo** con `LOGIN_MAX_ATTEMPTS_PER_EMAIL` (50), un respaldo frente a ataques
+  repartidos entre muchas IP. Costo aceptado del último: quien acumule 50 fallos contra un correo
+  desde cualquier IP bloquea los logins de ese correo hasta que venza la ventana. Un login correcto
+  limpia el contador del par, no los de la IP ni el email. Al superarlo, 429 `too_many_attempts`
+  (con `Retry-After`).
+  - La memoria está acotada por `LOGIN_LIMITER_MAX_KEYS` (10.000, mínimo 3; cada fallo usa tres
     claves). Las claves se ordenan por su último fallo: las vencidas se purgan al insertar y, si
     aún se supera el tope, se desalojan primero las de actividad más antigua. Costo aceptado: quien
     genere más de ese número de claves distintas dentro de la ventana puede desalojar contadores
@@ -182,7 +193,16 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
   la primera a la última clasificación; más de 400 periodos → 422. `evaluation.f1_macro` sale de los motores.
 - Todo método nuevo del repositorio recibe `org_id` obligatorio (`test_repository_guard.py`).
 
+## Límites de solicitudes y de cuerpo (parte 2, PR d)
+
+- `/models`, `/classify` y `/classify/batch` usan `require_session_or_key_limited` (`app/api/deps.py`): límite
+  por minuto por API key (`RATE_LIMIT_KEY_PER_MINUTE`, 60) o por usuario (`RATE_LIMIT_USER_PER_MINUTE`, 120),
+  **nunca por IP**; ventana deslizante en memoria (`InMemoryRequestRateLimiter`, una sola réplica). 429
+  `rate_limited` con `Retry-After`. Cuenta toda solicitud autenticada, aunque luego falle.
+- `BodyLimitMiddleware` (`app/api/middleware.py`): `MAX_BODY_BYTES` (1 MiB); mira `Content-Length` y cuenta los
+  bytes del stream. FastAPI convierte un fallo al leer el cuerpo en un 400, así que el middleware sustituye
+  esa respuesta por el 413 `payload_too_large`. Está por dentro del middleware de log para que lo registre.
+
 ## Qué queda para la parte 2
 
-Pendiente: límite de solicitudes, proxy de confianza del dashboard, límite de tamaño de cuerpo, imagen
-Docker con el modelo.
+Pendiente: imagen Docker con el modelo (PR e).

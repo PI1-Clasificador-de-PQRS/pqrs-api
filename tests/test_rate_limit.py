@@ -7,11 +7,17 @@ WINDOW = timedelta(minutes=15)
 
 
 def make(
-    clock: FakeClock, *, max_attempts: int = 3, per_ip: int = 6, max_keys: int = 100
+    clock: FakeClock,
+    *,
+    max_attempts: int = 3,
+    per_ip: int = 6,
+    per_email: int = 1000,
+    max_keys: int = 100,
 ) -> InMemoryLoginRateLimiter:
     return InMemoryLoginRateLimiter(
         max_attempts=max_attempts,
         max_attempts_per_ip=per_ip,
+        max_attempts_per_email=per_email,
         window=WINDOW,
         max_keys=max_keys,
         clock=clock,
@@ -39,11 +45,21 @@ def test_attacker_from_another_ip_cannot_lock_out_the_real_user() -> None:
     assert not limiter.is_blocked(email="victima@x.com", ip="1.1.1.1")  # la víctima, no
 
 
-def test_there_is_no_email_only_limit() -> None:
-    limiter = make(FakeClock(), max_attempts=2, per_ip=100)
-    for i in range(10):  # el mismo email desde 10 IP distintas, sin pasar el límite por par
+def test_email_only_limit_is_a_high_backstop_against_distributed_attacks() -> None:
+    limiter = make(FakeClock(), max_attempts=2, per_ip=100, per_email=10)
+    for i in range(9):  # el mismo email desde 9 IP distintas: ni el par ni la IP llegan al límite
         fail(limiter, "a@x.com", f"9.9.9.{i}")
     assert not limiter.is_blocked(email="a@x.com", ip="1.2.3.4")
+    fail(limiter, " A@x.com ", "9.9.9.99")  # el décimo fallo, normalizado
+    assert limiter.is_blocked(email="a@x.com", ip="1.2.3.4")  # bloquea el email desde cualquier IP
+    assert not limiter.is_blocked(email="otro@x.com", ip="1.2.3.4")
+
+
+def test_successful_login_does_not_clear_the_email_counter() -> None:
+    limiter = make(FakeClock(), max_attempts=100, per_ip=100, per_email=3)
+    fail(limiter, "a@x.com", "1.1.1.1", times=3)
+    limiter.record_success(email="a@x.com", ip="1.1.1.1")
+    assert limiter.is_blocked(email="a@x.com", ip="1.1.1.1")
 
 
 def test_ip_limit_applies_across_different_emails() -> None:
@@ -133,11 +149,11 @@ def test_expired_entries_are_purged_on_insert() -> None:
     limiter = make(clock)
     fail(limiter, "a@x.com", "1.1.1.1")
     fail(limiter, "b@x.com", "2.2.2.2")
-    assert limiter.size == 4
+    assert limiter.size == 6  # tres claves por fallo: par, IP y correo
 
     clock.advance(minutes=16)
     fail(limiter, "c@x.com", "3.3.3.3")  # inserta y purga las vencidas
-    assert limiter.size == 2
+    assert limiter.size == 3
 
 
 def test_blocked_keys_are_not_purged_while_in_the_window() -> None:

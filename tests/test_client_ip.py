@@ -10,6 +10,7 @@ from app.api.client_ip import resolve_client_ip
 from app.api.deps import client_ip, get_settings_dep
 from app.infrastructure.config.settings import Settings
 from app.main import create_app
+from tests.conftest import PROXY_HEADERS
 
 PEER = "10.0.0.9"
 
@@ -73,7 +74,7 @@ def build_client(settings: Settings, session_factory: sessionmaker[Session], hop
     ) -> dict[str, str | None]:
         return {"ip": client_ip(request, settings)}
 
-    return TestClient(app, base_url="https://testserver")
+    return TestClient(app, base_url="https://testserver", headers=PROXY_HEADERS)
 
 
 def test_request_uses_the_connection_ip_by_default(

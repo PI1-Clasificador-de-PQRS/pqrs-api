@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_registry, require_session_or_key
+from app.api.deps import get_registry, require_session_or_key_limited
 from app.api.errors import error_responses
 from app.api.schemas.models import EngineEvaluation, ModelInfo, UnavailableReason
 from app.application.ports import EngineStatus
@@ -39,10 +39,12 @@ def to_model_info(status: EngineStatus) -> ModelInfo:
         ErrorCode.MISSING_CREDENTIALS,
         ErrorCode.INVALID_CREDENTIALS,
         ErrorCode.SESSION_EXPIRED,
+        ErrorCode.PROXY_REQUIRED,
+        ErrorCode.RATE_LIMITED,
     ),
 )
 def list_models(
-    principal: Annotated[Principal, Depends(require_session_or_key)],
+    principal: Annotated[Principal, Depends(require_session_or_key_limited)],
     registry: Annotated[EngineRegistry, Depends(get_registry)],
 ) -> list[ModelInfo]:
     """Lista los motores (`llm`, `classifier`) con su disponibilidad y su F1 macro.
