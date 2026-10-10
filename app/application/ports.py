@@ -178,6 +178,12 @@ class UnitOfWork(Protocol):
     def rollback(self) -> None: ...
 
 
+class RequestRateLimiter(Protocol):
+    def hit(self, key: str, limit: int) -> int | None:
+        """Registra una solicitud; ``None`` si pasa, o los segundos hasta poder reintentar."""
+        ...
+
+
 class Clock(Protocol):
     def now(self) -> datetime: ...
 

@@ -17,7 +17,10 @@ router = APIRouter(tags=["auth"])
     summary="Usuario y organización de la sesión",
     response_model=MeResponse,
     responses=error_responses(
-        ErrorCode.MISSING_CREDENTIALS, ErrorCode.SESSION_EXPIRED, ErrorCode.SESSION_REQUIRED
+        ErrorCode.PROXY_REQUIRED,
+        ErrorCode.MISSING_CREDENTIALS,
+        ErrorCode.SESSION_EXPIRED,
+        ErrorCode.SESSION_REQUIRED,
     ),
 )
 def me(

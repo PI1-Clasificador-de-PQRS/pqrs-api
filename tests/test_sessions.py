@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import SessionModel
 from app.infrastructure.security.passwords import Argon2PasswordHasher
+from tests.conftest import PROXY_HEADERS
 from tests.factories import seed_login_user
 from tests.fakes import FakeClock
 
@@ -151,6 +152,7 @@ def test_absolute_lifetime_is_configurable(
     client = TestClient(
         create_app(short, session_factory, clock=clock, hasher=hasher),
         base_url="https://testserver",
+        headers=PROXY_HEADERS,
     )
     logged_in(client, db_session, hasher)
     clock.advance(hours=1, minutes=59)

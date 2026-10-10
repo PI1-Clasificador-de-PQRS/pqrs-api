@@ -13,6 +13,9 @@ from app.main import create_app
 from tests.db_utils import TEST_DATABASE_URL, create_database, migrate
 from tests.fakes import FakeClock, RecordingFakeEngine
 
+PROXY_SECRET = "secreto-del-proxy-de-pruebas"
+PROXY_HEADERS = {"X-PQRS-Proxy-Secret": PROXY_SECRET}
+
 
 @pytest.fixture(scope="session")
 def db_engine() -> Iterator[Engine]:
@@ -69,6 +72,9 @@ def settings() -> Settings:
         login_max_attempts=5,
         login_window_minutes=15,
         trusted_proxy_hops=0,
+        proxy_shared_secret=PROXY_SECRET,
+        rate_limit_key_per_minute=60,
+        rate_limit_user_per_minute=120,
     )
 
 
@@ -113,5 +119,15 @@ def app(
 
 @pytest.fixture
 def client(app: FastAPI) -> TestClient:
-    # https para que la cookie Secure se reenvíe entre peticiones.
+    """Cliente que actúa como el proxy del dashboard: envía el secreto compartido.
+
+    Con ``https`` la cookie Secure se reenvía entre peticiones. Las peticiones con API key no
+    necesitan el secreto, pero tenerlo no les afecta.
+    """
+    return TestClient(app, base_url="https://testserver", headers=PROXY_HEADERS)
+
+
+@pytest.fixture
+def direct_client(app: FastAPI) -> TestClient:
+    """Cliente que llama directo a la API, sin pasar por el proxy (sin secreto)."""
     return TestClient(app, base_url="https://testserver")

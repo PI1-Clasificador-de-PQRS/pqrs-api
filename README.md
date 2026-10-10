@@ -98,22 +98,35 @@ sus sesiones) y `revoke-key`.
 
 ## Iniciar sesión con curl
 
-El dashboard es un proxy BFF: el navegador nunca ve credenciales. Para probar a mano, guarda la
-cookie con `-c` y reenvíala con `-b`. Las peticiones que modifican datos con cookie exigen
-`X-PQRS-CSRF: 1`.
+El dashboard es un proxy BFF: el navegador nunca ve credenciales. Para probar a mano, haz lo que
+haría el proxy (ver [Contrato con el proxy del dashboard](#contrato-con-el-proxy-del-dashboard)):
+envía `X-PQRS-Proxy-Secret`, guarda la cookie con `-c` y reenvíala con `-b`. Las peticiones que
+modifican datos con cookie exigen `X-PQRS-CSRF: 1`.
 
 ```bash
+P="X-PQRS-Proxy-Secret: $PROXY_SHARED_SECRET"   # el valor de PROXY_SHARED_SECRET de la API
+
 # Iniciar sesión (fija la cookie de sesión)
-curl -c jar.txt -H 'Content-Type: application/json' \
+curl -c jar.txt -H "$P" -H 'X-PQRS-Client-IP: 203.0.113.7' -H 'Content-Type: application/json' \
   -d '{"email":"ana@example.com","password":"<tu contraseña>"}' \
   localhost:8000/api/v1/auth/login
 
 # Datos de la sesión
-curl -b jar.txt localhost:8000/api/v1/me
+curl -b jar.txt -H "$P" localhost:8000/api/v1/me
+
+# Clasificar, ver el historial y las métricas
+curl -b jar.txt -H "$P" -H 'X-PQRS-CSRF: 1' -H 'Content-Type: application/json' \
+  -d '{"text":"Quiero saber el estado de mi trámite","model":"classifier"}' \
+  localhost:8000/api/v1/classify
+curl -b jar.txt -H "$P" 'localhost:8000/api/v1/classifications?page_size=5'
+curl -b jar.txt -H "$P" 'localhost:8000/api/v1/metrics/summary?granularity=day'
 
 # Cerrar sesión (POST con cookie → cabecera CSRF)
-curl -b jar.txt -c jar.txt -X POST -H 'X-PQRS-CSRF: 1' localhost:8000/api/v1/auth/logout -i
+curl -b jar.txt -c jar.txt -H "$P" -X POST -H 'X-PQRS-CSRF: 1' localhost:8000/api/v1/auth/logout -i
 ```
+
+Con `ENVIRONMENT=development` y **sin** `PROXY_SHARED_SECRET` el chequeo del proxy queda desactivado
+(la API avisa al arrancar) y puedes omitir esas cabeceras.
 
 Una API key se envía con `X-API-Key` y **solo permite clasificar**; historial, métricas y `/me`
 exigen sesión:
@@ -124,10 +137,37 @@ curl -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
   -d '{"text":"Solicito copia de mi expediente","model":"classifier"}' localhost:8000/api/v1/classify
 ```
 
+## Contrato con el proxy del dashboard
+
+La API es pública (también la llaman sistemas externos con `X-API-Key`), así que no puede fiarse de
+una IP que escriba el cliente. El dashboard (Next.js) es el único que maneja la cookie de sesión y
+debe comportarse así al reenviar cada petición del navegador a la API:
+
+| Cabecera | Quién la pone | Para qué |
+|---|---|---|
+| `X-PQRS-Proxy-Secret: <PROXY_SHARED_SECRET>` | el proxy, siempre | Prueba de que la petición pasó por el proxy. Sin un secreto válido, el login, el logout y toda petición autenticada con la cookie responden **403 `proxy_required`**. Se compara en tiempo constante. |
+| `X-PQRS-Client-IP: <IP del navegador>` | el proxy | IP real del navegador, para el límite de intentos de login. Solo se usa con un secreto válido y si es una IP; en cualquier otro caso se usa la lógica de `TRUSTED_PROXY_HOPS`. |
+| `X-PQRS-CSRF: 1` | el proxy | En POST, PUT, PATCH y DELETE con cookie (no en el login). |
+| `Cookie: pqrs_session=...` | el proxy | Se reenvía tal cual; el navegador nunca la maneja desde JavaScript. |
+
+Reglas para el proxy:
+
+- **No reenviar `X-API-Key` desde el navegador.** Si llegan cookie y `X-API-Key`, gana la API key (y
+  esa rama no pasa por el proxy). El navegador no debe poder inyectarla; elimina esa cabecera y
+  cualquier `X-PQRS-*` que traiga la petición del navegador antes de poner las suyas.
+- Guardar `PROXY_SHARED_SECRET` solo en el servidor del dashboard (variable de entorno, nunca
+  `NEXT_PUBLIC_*`), y generarlo largo y aleatorio (`openssl rand -hex 32`).
+- Las peticiones con `X-API-Key` van directo a la API y no necesitan nada de lo anterior.
+- `GET /health` y `GET /ready` son públicos.
+
+`PROXY_SHARED_SECRET` es **obligatorio** salvo con `ENVIRONMENT=development`: si falta en otro
+entorno, la API no arranca.
+
 ## IP del cliente y proxies (`TRUSTED_PROXY_HOPS`)
 
-El límite de intentos de login usa la IP del cliente. `X-Forwarded-For` la puede escribir quien
-llama, así que **por defecto se ignora** (`TRUSTED_PROXY_HOPS=0`) y se usa la IP de la conexión.
+El límite de intentos de login usa la IP del cliente. Si el proxy envía un secreto válido y
+`X-PQRS-Client-IP`, se usa esa IP. En cualquier otro caso `X-Forwarded-For` (que puede escribir quien
+llama) **se ignora por defecto** (`TRUSTED_PROXY_HOPS=0`) y se usa la IP de la conexión.
 
 Si la API está detrás de proxies de confianza, `TRUSTED_PROXY_HOPS=N` toma la entrada N contando
 **desde la derecha** de `X-Forwarded-For`: la que agregó el proxy de confianza más externo. Lo que
@@ -136,10 +176,23 @@ la entrada no es una IP, se usa la IP de la conexión.
 
 Cómo elegir N: cuenta los proxies de confianza entre el cliente y la API que agregan una entrada a la
 cabecera. Un N mayor que el real permite falsificar la IP; uno menor da la IP de un proxy y agrupa a
-todos los usuarios en un mismo cubo. En Azure Container Apps la ingress agrega una entrada y el proxy
-del dashboard debe agregar la IP real del navegador, así que para el tráfico del dashboard hacia la API
-por su ingress el valor esperado es `2` (`1` si solo hay ingress). Compruébalo en el despliegue. En
-local déjalo en `0`.
+todos los usuarios en un mismo cubo. Con `X-PQRS-Client-IP` ya no hace falta contar al proxy del
+dashboard: en **Azure Container Apps el valor recomendado es `1`** (solo la ingress, que agrega la IP
+de quien la llama), y sirve para el tráfico directo de sistemas externos. Compruébalo en el
+despliegue. En local déjalo en `0`.
+
+## Límites
+
+- **Cuerpo de la petición:** `MAX_BODY_BYTES` (1 MiB). Se verifica `Content-Length` y también se
+  cuentan los bytes de cuerpos sin esa cabecera; al superarlo, 413 `payload_too_large`.
+- **Solicitudes:** `/models`, `/classify` y `/classify/batch` admiten `RATE_LIMIT_KEY_PER_MINUTE` (60)
+  por API key y `RATE_LIMIT_USER_PER_MINUTE` (120) por usuario, nunca por IP. Un lote cuenta como una
+  solicitud. Al superarlo, 429 `rate_limited` con `Retry-After`.
+- **Login:** `LOGIN_MAX_ATTEMPTS` (5) por (correo, IP), `LOGIN_MAX_ATTEMPTS_PER_IP` (20) por IP y
+  `LOGIN_MAX_ATTEMPTS_PER_EMAIL` (50) por correo, todos en la ventana `LOGIN_WINDOW_MINUTES`. El
+  límite por correo es un respaldo frente a ataques repartidos entre muchas IP; su costo es que quien
+  acumule 50 fallos contra un correo bloquea sus logins hasta que venza la ventana.
+- Todos los límites son **en memoria y asumen una sola réplica** de la API.
 
 ## Desarrollo
 

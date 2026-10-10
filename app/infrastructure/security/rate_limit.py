@@ -12,11 +12,15 @@ Key = tuple[str, ...]
 class InMemoryLoginRateLimiter:
     """Ventana deslizante de intentos fallidos de login, en memoria (una sola réplica).
 
-    Dos contadores por intento fallido:
+    Tres contadores por intento fallido:
 
     * par **(email normalizado, IP)**, con ``max_attempts``: frena la fuerza bruta sobre una
       cuenta sin que un tercero desde otra IP pueda bloquear al usuario legítimo;
-    * **IP sola**, con ``max_attempts_per_ip``: frena a quien prueba muchos emails desde una IP.
+    * **IP sola**, con ``max_attempts_per_ip``: frena a quien prueba muchos emails desde una IP;
+    * **email solo**, con ``max_attempts_per_email`` (alto): respaldo frente a un ataque repartido
+      entre muchas IP. Costo aceptado: quien acumule ese número de fallos contra un correo, desde
+      cualquier IP, bloquea los logins de ese correo hasta que venza la ventana. Un login correcto
+      no lo limpia.
 
     La memoria está acotada por ``max_keys``. Las claves se mantienen ordenadas por su último
     fallo, así que las vencidas quedan al frente: se purgan al insertar y, si aun así se supera el
@@ -29,12 +33,14 @@ class InMemoryLoginRateLimiter:
         *,
         max_attempts: int,
         max_attempts_per_ip: int,
+        max_attempts_per_email: int,
         window: timedelta,
         max_keys: int,
         clock: Clock,
     ) -> None:
         self._max_attempts = max_attempts
         self._max_attempts_per_ip = max_attempts_per_ip
+        self._max_attempts_per_email = max_attempts_per_email
         self._window = window
         self._max_keys = max_keys
         self._clock = clock
@@ -48,9 +54,10 @@ class InMemoryLoginRateLimiter:
             return len(self._failures)
 
     @staticmethod
-    def _keys(email: str, ip: str | None) -> tuple[Key, Key]:
+    def _keys(email: str, ip: str | None) -> tuple[Key, Key, Key]:
         ip = ip or _UNKNOWN_IP
-        return ("pair", email.strip().lower(), ip), ("ip", ip)
+        normalized = email.strip().lower()
+        return ("pair", normalized, ip), ("ip", ip), ("email", normalized)
 
     def _live_count(self, key: Key, now: datetime) -> int:
         attempts = self._failures.get(key)
@@ -74,11 +81,12 @@ class InMemoryLoginRateLimiter:
 
     def is_blocked(self, *, email: str, ip: str | None) -> bool:
         now = self._clock.now()
-        pair, ip_key = self._keys(email, ip)
+        pair, ip_key, email_key = self._keys(email, ip)
         with self._lock:
             return (
                 self._live_count(pair, now) >= self._max_attempts
                 or self._live_count(ip_key, now) >= self._max_attempts_per_ip
+                or self._live_count(email_key, now) >= self._max_attempts_per_email
             )
 
     def record_failure(self, *, email: str, ip: str | None) -> None:
@@ -95,7 +103,7 @@ class InMemoryLoginRateLimiter:
                 self._failures.popitem(last=False)
 
     def record_success(self, *, email: str, ip: str | None) -> None:
-        """Limpia el contador del par (email, IP); el de la IP sola se conserva."""
-        pair, _ = self._keys(email, ip)
+        """Limpia el contador del par (email, IP); los de la IP y del email solos se conservan."""
+        pair, _, _ = self._keys(email, ip)
         with self._lock:
             self._failures.pop(pair, None)

@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from app.cli.main import app as cli
 from app.domain.credentials import hash_token
 from app.infrastructure.repositories.uow import SqlUnitOfWork
+from tests.conftest import PROXY_HEADERS
 
 PASSWORD = "contraseña-larga-123"
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -223,7 +224,7 @@ def test_deactivate_user_closes_all_sessions(
     org_id = create_org(runner)
     create_user(runner, org_id)
     # Dos sesiones del mismo usuario (dos navegadores).
-    second = TestClient(app, base_url="https://testserver")
+    second = TestClient(app, base_url="https://testserver", headers=PROXY_HEADERS)
     for c in (client, second):
         assert (
             c.post(

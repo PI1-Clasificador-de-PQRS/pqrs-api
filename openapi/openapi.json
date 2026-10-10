@@ -389,9 +389,11 @@
           "session_expired",
           "session_required",
           "csrf_required",
+          "proxy_required",
           "not_found",
           "method_not_allowed",
           "batch_too_large",
+          "payload_too_large",
           "invalid_request",
           "invalid_text",
           "invalid_external_ref",
@@ -723,7 +725,7 @@
     }
   },
   "info": {
-    "description": "API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de información).\n\n## Credenciales\n\n* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.\n* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** (`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.\n* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con API key están exentos.\n\nToda credencial se resuelve en una organización; un recurso de otra organización responde 404.\n\n## Errores\n\nTodos los errores tienen la forma `{\"detail\": {\"code\": \"<código_estable>\", \"message\": \"<texto>\"}}`.\n\n| HTTP | Códigos |\n|---|---|\n| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |\n| 403 | `csrf_required` |\n| 404 | `not_found` |\n| 413 | `batch_too_large` |\n| 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |\n| 429 | `too_many_attempts`, `rate_limited` |\n| 503 | `llm_unavailable`, `classifier_unavailable` |\n",
+    "description": "API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de información).\n\n## Credenciales\n\n* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.\n* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** (`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.\n* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con API key están exentos.\n* **Proxy de confianza:** la API es pública, así que el login, el logout y toda petición autenticada con la cookie exigen además `X-PQRS-Proxy-Secret` (el secreto compartido con el dashboard); sin un secreto válido responden 403 `proxy_required`. El proxy envía también la IP del navegador en `X-PQRS-Client-IP` (solo se usa con un secreto válido). Las peticiones con `X-API-Key` no pasan por el proxy, y el proxy **no** debe reenviar `X-API-Key` desde el navegador.\n\n## Límites\n\n* **Tamaño del cuerpo:** `MAX_BODY_BYTES` (1 MiB por defecto); más responde 413 `payload_too_large`.\n* **Solicitudes** a `/models`, `/classify` y `/classify/batch`: por minuto y por API key o por usuario (nunca por IP); al superarlo, 429 `rate_limited` con `Retry-After`.\n* **Login:** intentos fallidos limitados por (correo, IP), por IP y por correo; 429 `too_many_attempts` con `Retry-After`.\n\nToda credencial se resuelve en una organización; un recurso de otra organización responde 404.\n\n## Errores\n\nTodos los errores tienen la forma `{\"detail\": {\"code\": \"<código_estable>\", \"message\": \"<texto>\"}}`.\n\n| HTTP | Códigos |\n|---|---|\n| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |\n| 403 | `csrf_required`, `proxy_required` |\n| 404 | `not_found` |\n| 413 | `batch_too_large`, `payload_too_large` |\n| 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |\n| 429 | `too_many_attempts`, `rate_limited` |\n| 503 | `llm_unavailable`, `classifier_unavailable` |\n",
     "summary": "API del Clasificador automático de PQRS",
     "title": "pqrs-api",
     "version": "0.1.0"
@@ -732,8 +734,46 @@
   "paths": {
     "/api/v1/auth/login": {
       "post": {
-        "description": "Valida las credenciales y fija la cookie de sesión (`HttpOnly`, `SameSite=Lax`).\n\nCualquier fallo (contraseña incorrecta, usuario inexistente o inactivo, organización\ninactiva) responde igual: 401 `invalid_credentials`. No exige `X-PQRS-CSRF`.",
+        "description": "Valida las credenciales y fija la cookie de sesión (`HttpOnly`, `SameSite=Lax`).\n\nCualquier fallo (contraseña incorrecta, usuario inexistente o inactivo, organización\ninactiva) responde igual: 401 `invalid_credentials`. No exige `X-PQRS-CSRF`, pero sí el\nsecreto del proxy (`X-PQRS-Proxy-Secret`): sin él, 403 `proxy_required`. La IP del navegador\n(`X-PQRS-Client-IP`) alimenta el límite de intentos.",
         "operationId": "login_api_v1_auth_login_post",
+        "parameters": [
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -774,6 +814,26 @@
               }
             },
             "description": "Códigos posibles: `invalid_credentials`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `proxy_required`"
           },
           "422": {
             "content": {
@@ -827,6 +887,42 @@
         "description": "Borra la sesión del servidor y la cookie.",
         "operationId": "logout_api_v1_auth_logout_post",
         "parameters": [
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
+          },
           {
             "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
             "in": "header",
@@ -897,6 +993,14 @@
                         "message": "Falta la cabecera X-PQRS-CSRF: 1 en una petición que modifica datos."
                       }
                     }
+                  },
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
                   }
                 },
                 "schema": {
@@ -904,7 +1008,7 @@
                 }
               }
             },
-            "description": "Códigos posibles: `csrf_required`"
+            "description": "Códigos posibles: `proxy_required`, `csrf_required`"
           },
           "422": {
             "content": {
@@ -1086,6 +1190,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "responses": {
@@ -1142,6 +1282,26 @@
               }
             },
             "description": "Códigos posibles: `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `proxy_required`"
           },
           "422": {
             "content": {
@@ -1207,6 +1367,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "responses": {
@@ -1263,6 +1459,26 @@
               }
             },
             "description": "Códigos posibles: `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `proxy_required`"
           },
           "404": {
             "content": {
@@ -1338,6 +1554,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "requestBody": {
@@ -1408,6 +1660,14 @@
                         "message": "Falta la cabecera X-PQRS-CSRF: 1 en una petición que modifica datos."
                       }
                     }
+                  },
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
                   }
                 },
                 "schema": {
@@ -1415,7 +1675,27 @@
                 }
               }
             },
-            "description": "Códigos posibles: `csrf_required`"
+            "description": "Códigos posibles: `csrf_required`, `proxy_required`"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "payload_too_large": {
+                    "value": {
+                      "detail": {
+                        "code": "payload_too_large",
+                        "message": "El cuerpo de la petición supera el tamaño máximo permitido."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `payload_too_large`"
           },
           "422": {
             "content": {
@@ -1522,6 +1802,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "requestBody": {
@@ -1592,6 +1908,14 @@
                         "message": "Falta la cabecera X-PQRS-CSRF: 1 en una petición que modifica datos."
                       }
                     }
+                  },
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
                   }
                 },
                 "schema": {
@@ -1599,7 +1923,7 @@
                 }
               }
             },
-            "description": "Códigos posibles: `csrf_required`"
+            "description": "Códigos posibles: `csrf_required`, `proxy_required`"
           },
           "413": {
             "content": {
@@ -1612,6 +1936,14 @@
                         "message": "El lote supera el máximo de 50 elementos."
                       }
                     }
+                  },
+                  "payload_too_large": {
+                    "value": {
+                      "detail": {
+                        "code": "payload_too_large",
+                        "message": "El cuerpo de la petición supera el tamaño máximo permitido."
+                      }
+                    }
                   }
                 },
                 "schema": {
@@ -1619,7 +1951,7 @@
                 }
               }
             },
-            "description": "Códigos posibles: `batch_too_large`"
+            "description": "Códigos posibles: `payload_too_large`, `batch_too_large`"
           },
           "422": {
             "content": {
@@ -1726,6 +2058,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "responses": {
@@ -1774,6 +2142,26 @@
               }
             },
             "description": "Códigos posibles: `missing_credentials`, `session_expired`, `session_required`"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `proxy_required`"
           },
           "422": {
             "content": {
@@ -1876,6 +2264,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "responses": {
@@ -1933,6 +2357,26 @@
             },
             "description": "Códigos posibles: `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required`"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `proxy_required`"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1987,6 +2431,42 @@
               "description": "Defensa en profundidad contra CSRF. Debe valer `1` en las peticiones POST, PUT, PATCH y DELETE autenticadas con la cookie de sesión (lo añade el proxy del dashboard). No se exige con `X-API-Key` ni en el login.",
               "title": "X-Pqrs-Csrf"
             }
+          },
+          {
+            "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+            "in": "header",
+            "name": "X-PQRS-Proxy-Secret",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Secreto compartido con el proxy del dashboard (`PROXY_SHARED_SECRET`). Es obligatorio en el login, el logout y toda petición autenticada con la cookie de sesión; sin un secreto válido la respuesta es 403 `proxy_required`. No se exige con `X-API-Key`.",
+              "title": "X-Pqrs-Proxy-Secret"
+            }
+          },
+          {
+            "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+            "in": "header",
+            "name": "X-PQRS-Client-IP",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IP del navegador que el proxy del dashboard reenvía. Solo se usa si `X-PQRS-Proxy-Secret` es válido; si no, la IP se deduce de `X-Forwarded-For` según `TRUSTED_PROXY_HOPS`. Alimenta el límite de intentos de login.",
+              "title": "X-Pqrs-Client-Ip"
+            }
           }
         ],
         "responses": {
@@ -2040,6 +2520,26 @@
             },
             "description": "Códigos posibles: `missing_credentials`, `invalid_credentials`, `session_expired`"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "proxy_required": {
+                    "value": {
+                      "detail": {
+                        "code": "proxy_required",
+                        "message": "Esta petición debe llegar a través del proxy del dashboard."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `proxy_required`"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2059,6 +2559,26 @@
               }
             },
             "description": "Códigos posibles: `invalid_request`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "detail": {
+                        "code": "rate_limited",
+                        "message": "Se superó el límite de solicitudes. Inténtalo de nuevo más tarde."
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Códigos posibles: `rate_limited`"
           }
         },
         "security": [
