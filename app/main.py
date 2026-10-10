@@ -1,4 +1,7 @@
 import json
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
 
@@ -12,10 +15,14 @@ from app.application.ports import Clock, PasswordHasher
 from app.domain.errors import ErrorCode
 from app.infrastructure.config.settings import Settings, get_settings
 from app.infrastructure.db.session import get_sessionmaker
+from app.infrastructure.engines.registry import EngineRegistry
 from app.infrastructure.logging import configure_logging
+from app.infrastructure.ner import check_ner_available
 from app.infrastructure.security.clock import SystemClock
 from app.infrastructure.security.passwords import Argon2PasswordHasher
 from app.infrastructure.security.rate_limit import InMemoryLoginRateLimiter
+
+logger = logging.getLogger("pqrs.api")
 
 API_VERSION = "0.1.0"
 API_PREFIX = "/api/v1"
@@ -109,10 +116,24 @@ def create_app(
     session_factory: sessionmaker[Session] | None = None,
     clock: Clock | None = None,
     hasher: PasswordHasher | None = None,
+    registry: EngineRegistry | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     clock = clock or SystemClock()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # El NER va primero: solo el primer ``anonymize`` del proceso avisa si falta el modelo.
+        if not check_ner_available():
+            message = "El NER de nombres (spaCy es_core_news_sm) no está disponible."
+            if not settings.is_development:
+                raise RuntimeError(message)
+            logger.warning("ner_unavailable_names_not_anonymized")
+        app.state.registry.load()  # no hace nada si ya se inyectaron los motores
+        yield
+
     app = FastAPI(
+        lifespan=lifespan,
         title="pqrs-api",
         version=API_VERSION,
         summary="API del Clasificador automático de PQRS",
@@ -120,6 +141,7 @@ def create_app(
         openapi_tags=OPENAPI_TAGS,
     )
     app.state.settings = settings
+    app.state.registry = registry or EngineRegistry(settings, clock)
     app.state.session_factory = session_factory or get_sessionmaker()
     app.state.clock = clock
     app.state.hasher = hasher or Argon2PasswordHasher()

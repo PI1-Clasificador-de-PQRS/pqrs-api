@@ -1,12 +1,15 @@
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # ``development`` relaja las exigencias de producción (secreto del proxy, modelo NER).
+    environment: str = "production"
     database_url: str = "postgresql+psycopg://pqrs:pqrs@localhost:5432/pqrs"
     session_cookie_name: str = "pqrs_session"
     session_cookie_secure: bool = True
@@ -23,6 +26,47 @@ class Settings(BaseSettings):
     # Proxies de confianza que agregan una entrada a X-Forwarded-For entre el cliente y la API.
     # 0: se ignora la cabecera y se usa la IP de la conexión.
     trusted_proxy_hops: int = Field(default=0, ge=0)
+
+    # Directorio con model.joblib y metadata.json del motor local (pqrs_classifier).
+    model_dir: Path = Path("/opt/model")
+    # Clasificaciones simultáneas del motor local (acota la memoria).
+    classifier_max_concurrency: int = Field(default=2, ge=1)
+
+    # Motor LLM: se pasan tal cual a ``LLMEngine.from_env``. Sin clave ni modelo queda
+    # ``not_configured``. ``.env`` no llega a ``os.environ``, por eso se declaran aquí.
+    llm_api_key: SecretStr | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    llm_temperature: float | None = None
+    llm_timeout: float | None = None
+    llm_max_retries: int | None = None
+    llm_workers: int | None = None
+    # Caracteres de cada texto que ve el LLM (el paquete trunca; el motor local ve el texto entero).
+    max_caracteres_texto: int | None = None
+    # F1 macro del LLM mostrado en /models y /metrics/summary (validación cruzada del paquete).
+    llm_eval_f1_macro: float = Field(default=0.8329, ge=0, le=1)
+
+    # Circuito de protección del LLM (en memoria; asume una sola réplica).
+    llm_circuit_failures: int = Field(default=3, ge=1)
+    llm_circuit_open_seconds: int = Field(default=60, ge=1)
+
+    @property
+    def is_development(self) -> bool:
+        return self.environment.strip().lower() == "development"
+
+    def llm_env(self) -> dict[str, str]:
+        """Variables ``LLM_*`` en el formato que espera ``LLMEngine.from_env``."""
+        values: dict[str, object | None] = {
+            "LLM_API_KEY": self.llm_api_key.get_secret_value() if self.llm_api_key else None,
+            "LLM_BASE_URL": self.llm_base_url,
+            "LLM_MODEL": self.llm_model,
+            "LLM_TEMPERATURE": self.llm_temperature,
+            "LLM_TIMEOUT": self.llm_timeout,
+            "LLM_MAX_RETRIES": self.llm_max_retries,
+            "LLM_WORKERS": self.llm_workers,
+            "MAX_CARACTERES_TEXTO": self.max_caracteres_texto,
+        }
+        return {k: str(v) for k, v in values.items() if v is not None}
 
     @field_validator("database_url")
     @classmethod

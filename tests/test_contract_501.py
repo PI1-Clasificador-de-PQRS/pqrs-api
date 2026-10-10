@@ -14,7 +14,6 @@ PASSWORD = "contraseña-segura-1"
 MARKER = "texto-original-de-una-pqrs-MARCADOR"
 
 SESSION_OR_KEY_ROUTES = [
-    ("GET", "/api/v1/models", None),
     ("POST", "/api/v1/classify", {"text": "Quiero información sobre mi trámite"}),
     ("POST", "/api/v1/classify/batch", {"items": [{"text": "uno"}, {"text": "dos"}]}),
 ]

@@ -58,7 +58,8 @@ al salir de una dependencia con `yield`, que FastAPI ejecuta tras enviar la resp
 ## Comandos
 
 ```bash
-uv sync                                         # instala dependencias (.venv)
+uv sync                                         # instala dependencias (.venv); necesita acceso a pqrs-classifier
+uv sync --group ml                              # además torch/SBERT (motor local real; pruebas `slow`)
 docker compose up -d db                         # PostgreSQL 16 en localhost:5432
 uv run alembic upgrade head                     # migraciones
 uv run pytest                                   # pruebas contra PostgreSQL real
@@ -136,22 +137,32 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
   pasado ese tiempo la sesión es inválida aunque tenga actividad reciente (401 `session_expired`,
   se borra la fila y la cookie).
 
+## Motores de clasificación (parte 2, PR a)
+
+- **Paquete privado `pqrs-classifier` (tag `v0.1.0`)**, dependencia por git (`[tool.uv.sources]`). La CI y
+  Docker necesitan el token de solo lectura (README, "Token del repositorio privado"). El dominio solo puede
+  importar `pqrs_classifier.categories` (stdlib); `test_architecture.py` lo verifica y
+  `tests/test_categories_sync.py` comprueba que el `CHECK` de la base coincide con el paquete.
+- **Grupo `ml`** (torch de CPU, sentence-transformers, `scikit-learn==1.9.0`): fuera de `uv sync` por defecto.
+  Las pruebas usan `FakeEngine`/`ScriptedEngine` (`tests/fakes.py`); las de motor real son `@pytest.mark.slow`.
+- **`EngineRegistry`** (`app/infrastructure/engines/registry.py`) implementa `EngineGateway`: el motor local se
+  carga una vez en el `lifespan` desde `MODEL_DIR` (si falla, la API arranca con `not_loaded` y `/ready`
+  responde 503); el LLM sale de `LLMEngine.from_env(Settings.llm_env())`. **Sin respaldo automático entre
+  motores**: `select()` decide antes de clasificar y un fallo posterior es 503.
+- **Circuito del LLM** (`app/application/circuit_breaker.py`, en memoria, **una sola réplica**): se abre tras 3
+  fallos consecutivos o con un `EngineUnavailableError(rate_limited)`, al menos 60 s o `retry_after`; luego
+  deja pasar un único sondeo (semiabierto).
+- **NER obligatorio:** el extra `ner` no instala `es_core_news_sm`, así que el modelo es dependencia directa.
+  `check_ner_available()` corre al arrancar; fuera de `ENVIRONMENT=development` la API no arranca sin él
+  (sin NER los nombres propios se guardarían sin anonimizar).
+- El LLM solo ve los primeros `MAX_CARACTERES_TEXTO` (1200) caracteres de cada texto; el local ve el texto
+  completo.
+
 ## Qué queda para la parte 2
 
 Hoy estas rutas están definidas con sus esquemas y responden `501 not_implemented` (tras
-autenticar):
+autenticar): `POST /classify`, `POST /classify/batch`, `GET /classifications`,
+`GET /classifications/{id}` y `GET /metrics/summary`. `GET /models` y `GET /ready` ya son reales.
 
-- `GET /models`, `POST /classify`, `POST /classify/batch` (sesión o API key).
-- `GET /classifications`, `GET /classifications/{id}`, `GET /metrics/summary` (solo sesión).
-
-Pendiente:
-
-- Importar las categorías de `pqrs_classifier.categories` (hoy duplicadas en
-  `app/domain/categories.py`, con un comentario que exige mantenerlas iguales) e instalar el paquete.
-- Motores `llm` y `classifier`, circuito de protección del LLM (`llm_unavailable`,
-  `classifier_unavailable`) y anonimización antes de persistir.
-- Límite de solicitudes por API key o usuario en clasificación (`rate_limited`).
-- Historial y métricas: filtros, paginación y agregaciones en `ClassificationRepository` (hoy solo
-  `add`, `get` y un `list` mínimo), validación por elemento y 413 `batch_too_large` en el lote.
-- `/ready` debe exigir además que el modelo local esté cargado.
-- Cualquier cambio de contrato debe regenerar `openapi/openapi.json`.
+Pendiente: clasificación con anonimización, historial y métricas, límite de solicitudes, proxy de
+confianza del dashboard, límite de tamaño de cuerpo, imagen Docker con el modelo.

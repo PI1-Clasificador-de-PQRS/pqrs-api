@@ -13,7 +13,13 @@ class UnavailableReason(StrEnum):
 
 
 class EngineEvaluation(ApiSchema):
-    f1_macro: float = Field(description="F1 macro del motor sobre el conjunto de evaluación.")
+    f1_macro: float | None = Field(
+        description=(
+            "F1 macro del motor sobre su conjunto de evaluación. El del clasificador local sale "
+            "de `metadata.json`; el del LLM, de la configuración (`LLM_EVAL_F1_MACRO`). `null` "
+            "si no se pudo leer."
+        )
+    )
 
 
 class ModelInfo(ApiSchema):

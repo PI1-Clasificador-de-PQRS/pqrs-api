@@ -29,3 +29,11 @@ class DomainError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class ServiceUnavailable(DomainError):
+    """Un motor de clasificación no está disponible (503). ``retry_after`` va en segundos."""
+
+    def __init__(self, code: ErrorCode, message: str, retry_after: int | None = None) -> None:
+        super().__init__(code, message)
+        self.retry_after = retry_after

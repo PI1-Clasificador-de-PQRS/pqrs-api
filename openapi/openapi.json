@@ -171,6 +171,7 @@
         "type": "object"
       },
       "Category": {
+        "description": "Las 4 categorías del MVP, en orden canónico. El valor es la etiqueta con tildes.",
         "enum": [
           "Petición",
           "Reclamo",
@@ -362,9 +363,16 @@
       "EngineEvaluation": {
         "properties": {
           "f1_macro": {
-            "description": "F1 macro del motor sobre el conjunto de evaluación.",
-            "title": "F1 Macro",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "F1 macro del motor sobre su conjunto de evaluación. El del clasificador local sale de `metadata.json`; el del LLM, de la configuración (`LLM_EVAL_F1_MACRO`). `null` si no se pudo leer.",
+            "title": "F1 Macro"
           }
         },
         "required": [
@@ -2058,7 +2066,7 @@
     },
     "/api/v1/models": {
       "get": {
-        "description": "Lista los motores (`llm`, `classifier`) con su disponibilidad y su F1 macro.\n\n**Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key.",
+        "description": "Lista los motores (`llm`, `classifier`) con su disponibilidad y su F1 macro.\n\nSi un motor no está disponible, `reason` dice por qué: `not_configured` (el LLM no tiene\nclave o modelo), `temporarily_unavailable` (circuito de protección abierto; `retry_after`\nson los segundos hasta el siguiente intento) o `not_loaded` (el modelo local no cargó).\nAcepta sesión o API key.",
         "operationId": "list_models_api_v1_models_get",
         "parameters": [
           {
@@ -2150,26 +2158,6 @@
               }
             },
             "description": "Códigos posibles: `invalid_request`"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "examples": {
-                  "not_implemented": {
-                    "value": {
-                      "detail": {
-                        "code": "not_implemented",
-                        "message": "Funcionalidad aún no implementada."
-                      }
-                    }
-                  }
-                },
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Códigos posibles: `not_implemented`"
           }
         },
         "security": [
@@ -2210,7 +2198,7 @@
     },
     "/ready": {
       "get": {
-        "description": "Comprueba que la base de datos es accesible.\n\nEn la parte 2 también exigirá que el modelo local esté cargado.",
+        "description": "Comprueba que la base de datos es accesible y que el modelo local está cargado.\n\nEl LLM no cuenta: es opcional y su disponibilidad se consulta en `GET /models`.",
         "operationId": "ready_ready_get",
         "responses": {
           "200": {
@@ -2227,6 +2215,14 @@
             "content": {
               "application/json": {
                 "examples": {
+                  "classifier_unavailable": {
+                    "value": {
+                      "detail": {
+                        "code": "classifier_unavailable",
+                        "message": "El clasificador local no está disponible."
+                      }
+                    }
+                  },
                   "database_unavailable": {
                     "value": {
                       "detail": {
@@ -2241,7 +2237,7 @@
                 }
               }
             },
-            "description": "Códigos posibles: `database_unavailable`"
+            "description": "Códigos posibles: `database_unavailable`, `classifier_unavailable`"
           }
         },
         "summary": "Listo para recibir tráfico",

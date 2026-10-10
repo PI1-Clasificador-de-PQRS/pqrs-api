@@ -7,11 +7,22 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     PYTHONUNBUFFERED=1
 
+# git: `pqrs-classifier` se instala desde un repositorio privado de GitHub.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
+# El token (build secret `classifier_token`) solo existe dentro de este RUN, como variables de
+# entorno de git: no se escribe en ningún archivo ni queda en una capa.
 # Dependencias primero para aprovechar la caché de capas.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=secret,id=classifier_token \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0="url.https://x-access-token:$(cat /run/secrets/classifier_token)@github.com/PI1-Clasificador-de-PQRS/pqrs-classifier.insteadOf" \
+    GIT_CONFIG_VALUE_0="https://github.com/PI1-Clasificador-de-PQRS/pqrs-classifier" \
+    uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini ./
 COPY migrations ./migrations

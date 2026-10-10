@@ -14,6 +14,10 @@ dependencies = [
     "argon2-cffi>=23.1",
     "typer>=0.15",
     "uvicorn>=0.32",
+    "pqrs-classifier[llm,ner]",
+    # Modelo de spaCy para el NER de nombres de `anonymize()`: el extra `ner` solo instala spaCy.
+    # Sin él, los nombres propios no se anonimizan (la API se niega a arrancar fuera de desarrollo).
+    "es-core-news-sm",
 ]
 
 [project.scripts]
@@ -26,6 +30,29 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
 ]
+# Motor local real (SBERT + regresión logística). No se instala por defecto: la CI normal usa
+# motores falsos y no necesita torch. La imagen Docker y el job `slow` usan `--group ml`.
+ml = [
+    "pqrs-classifier[embeddings]",
+    # El modelo se entrenó con scikit-learn 1.9.0 (metadata.json del release v0.1.0):
+    # `artifacts.load` exige la misma versión mayor.menor y un pickle de otra versión avisa.
+    "scikit-learn==1.9.0",
+    "torch>=2.4",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.sources]
+pqrs-classifier = { git = "https://github.com/PI1-Clasificador-de-PQRS/pqrs-classifier", tag = "v0.1.0" }
+es-core-news-sm = { url = "https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.8.0/es_core_news_sm-3.8.0-py3-none-any.whl" }
+# torch de CPU (sin CUDA) en Linux: la imagen pesa cientos de MB menos.
+torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]
@@ -54,4 +81,7 @@ no_implicit_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -m 'not slow'"
+markers = [
+    "slow: carga el motor local real (torch, SBERT); no corre por defecto (usar -m slow)",
+]
