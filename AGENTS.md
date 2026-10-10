@@ -119,6 +119,18 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
     real del navegador, así que para el tráfico del dashboard el valor esperado es `2` (`1` si solo
     hay ingress). Debe comprobarse en el despliegue.
 
+- **Límite de intentos de login** (`app/infrastructure/security/rate_limit.py`, en memoria, una sola
+  réplica): dos contadores por fallo en la misma ventana (`LOGIN_WINDOW_MINUTES`): el par **(email
+  normalizado, IP)** con `LOGIN_MAX_ATTEMPTS` (5) y la **IP sola** con `LOGIN_MAX_ATTEMPTS_PER_IP`
+  (20). **No hay límite por email solo**: permitiría que un tercero bloquee a un usuario real desde
+  otra IP. Un login correcto limpia el contador del par, no el de la IP. Al superarlo, 429
+  `too_many_attempts` (con `Retry-After`).
+  - La memoria está acotada por `LOGIN_LIMITER_MAX_KEYS` (10.000, mínimo 2; cada fallo usa dos
+    claves). Las claves se ordenan por su último fallo: las vencidas se purgan al insertar y, si
+    aún se supera el tope, se desalojan primero las de actividad más antigua. Costo aceptado: quien
+    genere más de ese número de claves distintas dentro de la ventana puede desalojar contadores
+    ajenos.
+
 ## Qué queda para la parte 2
 
 Hoy estas rutas están definidas con sus esquemas y responden `501 not_implemented` (tras

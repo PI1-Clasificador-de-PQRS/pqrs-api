@@ -125,7 +125,9 @@ def create_app(
     app.state.hasher = hasher or Argon2PasswordHasher()
     app.state.rate_limiter = InMemoryLoginRateLimiter(
         max_attempts=settings.login_max_attempts,
+        max_attempts_per_ip=settings.login_max_attempts_per_ip,
         window=timedelta(minutes=settings.login_window_minutes),
+        max_keys=settings.login_limiter_max_keys,
         clock=clock,
     )
 

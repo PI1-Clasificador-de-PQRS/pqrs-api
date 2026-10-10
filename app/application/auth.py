@@ -81,7 +81,7 @@ class AuthService:
             created_at=self._clock.now(),
         )
         self._uow.commit()
-        self._limiter.record_success(email=email)
+        self._limiter.record_success(email=email, ip=ip)
         return LoginResult(
             token=token,
             me=MeData(
