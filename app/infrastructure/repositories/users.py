@@ -2,9 +2,11 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.entities import User
+from app.domain.errors import DomainError, ErrorCode
 from app.infrastructure.db.models import UserModel
 
 
@@ -45,8 +47,14 @@ class SqlUserRepository:
             active=True,
             created_at=created_at,
         )
-        self._session.add(row)
-        self._session.flush()
+        try:
+            # Savepoint: un correo duplicado no debe invalidar la transacción completa.
+            with self._session.begin_nested():
+                self._session.add(row)
+        except IntegrityError as exc:
+            raise DomainError(
+                ErrorCode.INVALID_REQUEST, "Ya existe un usuario con ese correo."
+            ) from exc
         return _to_entity(row)
 
     def get(self, org_id: UUID, user_id: UUID) -> User | None:
