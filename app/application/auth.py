@@ -43,12 +43,14 @@ class AuthService:
         limiter: LoginRateLimiter,
         clock: Clock,
         session_idle: timedelta,
+        session_max: timedelta,
     ) -> None:
         self._uow = uow
         self._hasher = hasher
         self._limiter = limiter
         self._clock = clock
         self._session_idle = session_idle
+        self._session_max = session_max
 
     def login(self, *, email: str, password: str, ip: str | None) -> LoginResult:
         if self._limiter.is_blocked(email=email, ip=ip):
@@ -81,7 +83,7 @@ class AuthService:
             created_at=self._clock.now(),
         )
         self._uow.commit()
-        self._limiter.record_success(email=email)
+        self._limiter.record_success(email=email, ip=ip)
         return LoginResult(
             token=token,
             me=MeData(
@@ -101,7 +103,12 @@ class AuthService:
                 ErrorCode.SESSION_EXPIRED, "La sesión expiró. Inicia sesión de nuevo."
             )
 
-        if now - session.last_seen_at > self._session_idle:
+        # Caduca por inactividad o por superar la vida máxima desde el login, aunque haya
+        # actividad reciente.
+        if (
+            now - session.last_seen_at > self._session_idle
+            or now - session.created_at > self._session_max
+        ):
             self._uow.sessions.delete(session.org_id, session.id)
             self._uow.commit()
             raise DomainError(

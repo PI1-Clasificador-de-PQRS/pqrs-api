@@ -56,9 +56,16 @@ def classify_batch(
     body: BatchRequest,
     principal: Annotated[Principal, Depends(require_session_or_key)],
 ) -> BatchResponse:
-    """Clasifica hasta 50 textos. Un elemento inválido lleva su `error` sin detener el resto.
+    """Clasifica un lote de hasta 50 textos.
 
-    **Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key. Más de 50
-    elementos responde 413 `batch_too_large`.
+    Límites:
+
+    * **Máximo 50 elementos** en `items`; más de 50 responde 413 `batch_too_large` y no se
+      clasifica ninguno. Una lista vacía responde 422 `invalid_request`.
+    * **Cada texto: de 1 a 5.000 caracteres.** Un elemento que no cumple devuelve su propio
+      `error` (`invalid_request`) en `results` sin detener el resto del lote.
+    * **`external_ref`: máximo 100 caracteres**, con el mismo error por elemento.
+
+    **Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key.
     """
     raise ApiError(ErrorCode.NOT_IMPLEMENTED)

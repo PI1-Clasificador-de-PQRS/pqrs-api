@@ -22,7 +22,7 @@ pqrs-admin = "app.cli.main:app"
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "httpx2",
+    "httpx2>=2.0.0",
     "ruff>=0.8",
     "mypy>=1.13",
 ]

@@ -105,6 +105,37 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
 - Todo fallo de login responde igual (401 `invalid_credentials`, mismo mensaje y tiempo parecido:
   se verifica contra un hash ficticio si el usuario no existe).
 
+## Límites de red
+
+- **IP del cliente (`TRUSTED_PROXY_HOPS`, por defecto `0`):** `X-Forwarded-For` lo escribe quien
+  llama, así que con `0` se ignora y se usa `request.client.host`. Con `N > 0` se toma la entrada N
+  contando **desde la derecha** (la que agregó el proxy de confianza más externo); con menos de N
+  entradas, o si la entrada no es una IP, se usa la IP de la conexión. La lógica está en
+  `app/api/client_ip.py` y nunca debe volver a leer la primera entrada. Esta API la llaman también
+  sistemas externos directamente: N solo es válido si todo el tráfico pasa por los N proxies.
+  - Cómo elegir N: número de proxies de confianza que agregan una entrada entre el cliente y la API.
+    Un N mayor que el real permite falsificar la IP; uno menor agrupa a los usuarios en un cubo.
+  - Azure Container Apps: la ingress agrega una entrada y el proxy del dashboard debe agregar la IP
+    real del navegador, así que para el tráfico del dashboard el valor esperado es `2` (`1` si solo
+    hay ingress). Debe comprobarse en el despliegue.
+
+- **Límite de intentos de login** (`app/infrastructure/security/rate_limit.py`, en memoria, una sola
+  réplica): dos contadores por fallo en la misma ventana (`LOGIN_WINDOW_MINUTES`): el par **(email
+  normalizado, IP)** con `LOGIN_MAX_ATTEMPTS` (5) y la **IP sola** con `LOGIN_MAX_ATTEMPTS_PER_IP`
+  (20). **No hay límite por email solo**: permitiría que un tercero bloquee a un usuario real desde
+  otra IP. Un login correcto limpia el contador del par, no el de la IP. Al superarlo, 429
+  `too_many_attempts` (con `Retry-After`).
+  - La memoria está acotada por `LOGIN_LIMITER_MAX_KEYS` (10.000, mínimo 2; cada fallo usa dos
+    claves). Las claves se ordenan por su último fallo: las vencidas se purgan al insertar y, si
+    aún se supera el tope, se desalojan primero las de actividad más antigua. Costo aceptado: quien
+    genere más de ese número de claves distintas dentro de la ventana puede desalojar contadores
+    ajenos.
+
+- **Vida de la sesión:** caduca por inactividad (`SESSION_IDLE_HOURS`, 8, medida con `last_seen_at`)
+  **y** por vida máxima absoluta desde el login (`SESSION_MAX_HOURS`, 24, medida con `created_at`):
+  pasado ese tiempo la sesión es inválida aunque tenga actividad reciente (401 `session_expired`,
+  se borra la fila y la cookie).
+
 ## Qué queda para la parte 2
 
 Hoy estas rutas están definidas con sus esquemas y responden `501 not_implemented` (tras

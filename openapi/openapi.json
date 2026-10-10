@@ -12,11 +12,11 @@
                 "type": "null"
               }
             ],
-            "description": "Referencia externa (máx. 100).",
+            "description": "Referencia del sistema que llama: máximo 100 caracteres. Si lo excede, ese elemento devuelve su propio `error` (`invalid_request`) y el resto sigue.",
             "title": "External Ref"
           },
           "text": {
-            "description": "Texto de la PQRS (1–5000). No se valida aquí: un elemento inválido recibe su propio `error` en la respuesta sin detener el resto del lote.",
+            "description": "Texto de la PQRS: de 1 a 5.000 caracteres. El esquema no lo restringe a propósito: un texto vacío o de más de 5.000 caracteres no rechaza el lote con 422; ese elemento devuelve su propio `error` (`invalid_request`) en `results` y el resto se clasifica con normalidad.",
             "title": "Text",
             "type": "string"
           }
@@ -65,7 +65,7 @@
                 "type": "null"
               }
             ],
-            "description": "Presente solo si este elemento falló."
+            "description": "Presente solo si este elemento falló; no afecta a los demás."
           },
           "id": {
             "anyOf": [
@@ -118,7 +118,7 @@
             "title": "Batch Id"
           },
           "items": {
-            "description": "Entre 1 y 50 elementos. Más de 50 responde 413 `batch_too_large` (no 422).",
+            "description": "Entre 1 y 50 elementos. Una lista vacía responde 422 `invalid_request`; más de 50 elementos responde 413 `batch_too_large` (no 422) y no se clasifica ninguno.",
             "items": {
               "$ref": "#/components/schemas/BatchItem"
             },
@@ -1553,7 +1553,7 @@
     },
     "/api/v1/classify/batch": {
       "post": {
-        "description": "Clasifica hasta 50 textos. Un elemento inválido lleva su `error` sin detener el resto.\n\n**Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key. Más de 50\nelementos responde 413 `batch_too_large`.",
+        "description": "Clasifica un lote de hasta 50 textos.\n\nLímites:\n\n* **Máximo 50 elementos** en `items`; más de 50 responde 413 `batch_too_large` y no se\n  clasifica ninguno. Una lista vacía responde 422 `invalid_request`.\n* **Cada texto: de 1 a 5.000 caracteres.** Un elemento que no cumple devuelve su propio\n  `error` (`invalid_request`) en `results` sin detener el resto del lote.\n* **`external_ref`: máximo 100 caracteres**, con el mismo error por elemento.\n\n**Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key.",
         "operationId": "classify_batch_api_v1_classify_batch_post",
         "parameters": [
           {

@@ -118,3 +118,26 @@ def test_csrf_header_and_security_schemes_are_documented() -> None:
     assert document["paths"]["/api/v1/me"]["get"]["security"] == [{"SessionCookie": []}]
     assert "security" not in document["paths"]["/api/v1/auth/login"]["post"]
     assert set(document["components"]["securitySchemes"]) == {"SessionCookie", "ApiKeyAuth"}
+
+
+def test_batch_limits_are_documented() -> None:
+    document = spec()
+    schemas = document["components"]["schemas"]
+
+    items = schemas["BatchRequest"]["properties"]["items"]["description"]
+    assert "50" in items and "413" in items and "batch_too_large" in items
+
+    text = schemas["BatchItem"]["properties"]["text"]["description"]
+    assert "5.000" in text and "error" in text
+
+    external_ref = schemas["BatchItem"]["properties"]["external_ref"]["description"]
+    assert "100" in external_ref and "error" in external_ref
+
+    operation = document["paths"]["/api/v1/classify/batch"]["post"]["description"]
+    assert "50" in operation and "5.000" in operation and "100" in operation
+    assert "413" in document["paths"]["/api/v1/classify/batch"]["post"]["responses"]
+
+    # El esquema sigue sin límites por elemento (los aplica la parte 2 con error por elemento).
+    item_text = schemas["BatchItem"]["properties"]["text"]
+    assert "maxLength" not in item_text and "minLength" not in item_text
+    assert "maxItems" not in schemas["BatchRequest"]["properties"]["items"]

@@ -125,34 +125,97 @@ def test_failures_expire_with_the_window(
     assert login(client).status_code == 200
 
 
-def test_ip_limit_uses_forwarded_for_only_when_trusted(
+def proxied_client(
+    session_factory, clock, hasher: Argon2PasswordHasher, settings: Settings, **overrides
+) -> TestClient:
+    """Cliente detrás de un proxy de confianza que agrega una entrada a X-Forwarded-For."""
+    configured = settings.model_copy(update={"trusted_proxy_hops": 1, **overrides})
+    return TestClient(
+        create_app(configured, session_factory, clock=clock, hasher=hasher),
+        base_url="https://testserver",
+    )
+
+
+def login_from(client: TestClient, ip: str, email: str, password: str):
+    return client.post(
+        LOGIN, json={"email": email, "password": password}, headers={"X-Forwarded-For": ip}
+    )
+
+
+def test_attacker_from_another_ip_cannot_lock_out_the_real_user(
     db_session: Session, session_factory, clock, hasher: Argon2PasswordHasher, settings: Settings
 ) -> None:
     seed_login_user(db_session, hasher)
-    trusted = settings.model_copy(update={"trust_forwarded_for": True})
-    client = TestClient(
-        create_app(trusted, session_factory, clock=clock, hasher=hasher),
-        base_url="https://testserver",
-    )
-    for i in range(5):
-        r = client.post(
-            LOGIN,
-            json={"email": f"x{i}@example.com", "password": "incorrecta-incorrecta"},
-            headers={"X-Forwarded-For": "1.1.1.1, 10.0.0.1"},
+    client = proxied_client(session_factory, clock, hasher, settings)
+
+    for _ in range(5):
+        assert (
+            login_from(client, "9.9.9.9", "ana@example.com", "incorrecta-incorrecta").status_code
+            == 401
         )
+    assert (
+        login_from(client, "9.9.9.9", "ana@example.com", "incorrecta-incorrecta").status_code == 429
+    )
+
+    legitimate = login_from(client, "8.8.8.8", "ana@example.com", PASSWORD)
+    assert legitimate.status_code == 200
+
+
+def test_per_ip_limit_applies_across_emails(
+    db_session: Session, session_factory, clock, hasher: Argon2PasswordHasher, settings: Settings
+) -> None:
+    seed_login_user(db_session, hasher)
+    client = proxied_client(session_factory, clock, hasher, settings, login_max_attempts_per_ip=4)
+
+    for i in range(4):  # ningún par (email, IP) llega a 5, pero la IP suma 4
+        r = login_from(client, "1.1.1.1", f"x{i}@example.com", "incorrecta-incorrecta")
         assert r.status_code == 401
-    blocked = client.post(
-        LOGIN,
-        json={"email": "ana@example.com", "password": PASSWORD},
-        headers={"X-Forwarded-For": "1.1.1.1"},
-    )
+    blocked = login_from(client, "1.1.1.1", "ana@example.com", PASSWORD)
     assert blocked.status_code == 429
-    other_ip = client.post(
-        LOGIN,
-        json={"email": "ana@example.com", "password": PASSWORD},
-        headers={"X-Forwarded-For": "2.2.2.2"},
-    )
-    assert other_ip.status_code == 200
+    assert blocked.json()["detail"]["code"] == "too_many_attempts"
+
+    assert login_from(client, "2.2.2.2", "ana@example.com", PASSWORD).status_code == 200
+
+
+def test_a_forged_forwarded_header_cannot_evade_the_limit(
+    db_session: Session, session_factory, clock, hasher: Argon2PasswordHasher, settings: Settings
+) -> None:
+    seed_login_user(db_session, hasher)
+    client = proxied_client(session_factory, clock, hasher, settings)
+
+    # El proxy agrega la IP real (última entrada); lo anterior lo falsifica el atacante.
+    for i in range(5):
+        r = login_from(client, f"10.0.0.{i}, 9.9.9.9", "ana@example.com", "incorrecta-incorrecta")
+        assert r.status_code == 401
+    blocked = login_from(client, "10.0.0.99, 9.9.9.9", "ana@example.com", PASSWORD)
+    assert blocked.status_code == 429
+
+
+def test_forwarded_header_is_ignored_without_trusted_hops(
+    db_session: Session, client: TestClient, hasher: Argon2PasswordHasher
+) -> None:
+    seed_login_user(db_session, hasher)
+    # Con 0 saltos, rotar la IP en la cabecera no evita el límite: es siempre la misma conexión.
+    for i in range(5):
+        r = login_from(client, f"10.0.0.{i}", "ana@example.com", "incorrecta-incorrecta")
+        assert r.status_code == 401
+    assert login_from(client, "10.0.0.200", "ana@example.com", PASSWORD).status_code == 429
+
+
+def test_successful_login_clears_the_pair_counter(
+    db_session: Session, session_factory, clock, hasher: Argon2PasswordHasher, settings: Settings
+) -> None:
+    seed_login_user(db_session, hasher)
+    client = proxied_client(session_factory, clock, hasher, settings)
+    for _ in range(4):
+        login_from(client, "1.1.1.1", "ana@example.com", "incorrecta-incorrecta")
+    assert login_from(client, "1.1.1.1", "ana@example.com", PASSWORD).status_code == 200
+    # El par volvió a cero: otros 4 fallos no bloquean.
+    for _ in range(4):
+        assert (
+            login_from(client, "1.1.1.1", "ana@example.com", "incorrecta-incorrecta").status_code
+            == 401
+        )
 
 
 def test_login_rehashes_outdated_password_hash(

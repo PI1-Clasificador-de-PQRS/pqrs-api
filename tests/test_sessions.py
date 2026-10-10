@@ -121,3 +121,39 @@ def test_session_of_inactive_org_is_rejected(
     response = client.get("/api/v1/me")
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "invalid_credentials"
+
+
+def test_session_has_an_absolute_maximum_lifetime_despite_recent_activity(
+    client: TestClient, db_session: Session, hasher: Argon2PasswordHasher, clock: FakeClock
+) -> None:
+    logged_in(client, db_session, hasher)
+
+    for _ in range(3):  # actividad cada 7 h: nunca supera las 8 h de inactividad
+        clock.advance(hours=7)
+        assert client.get("/api/v1/me").status_code == 200
+    clock.advance(hours=2, minutes=59)  # 23 h 59 min desde el login
+    assert client.get("/api/v1/me").status_code == 200
+
+    clock.advance(minutes=1, seconds=1)  # 24 h 0 min 1 s; la última actividad fue hace 1 min 1 s
+    response = client.get("/api/v1/me")
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "session_expired"
+    assert "max-age=0" in response.headers["set-cookie"].lower()
+    assert db_session.scalar(text("SELECT count(*) FROM sessions")) == 0
+
+
+def test_absolute_lifetime_is_configurable(
+    db_session: Session, session_factory, clock: FakeClock, hasher: Argon2PasswordHasher, settings
+) -> None:
+    from app.main import create_app
+
+    short = settings.model_copy(update={"session_max_hours": 2})
+    client = TestClient(
+        create_app(short, session_factory, clock=clock, hasher=hasher),
+        base_url="https://testserver",
+    )
+    logged_in(client, db_session, hasher)
+    clock.advance(hours=1, minutes=59)
+    assert client.get("/api/v1/me").status_code == 200
+    clock.advance(minutes=2)
+    assert client.get("/api/v1/me").json()["detail"]["code"] == "session_expired"
