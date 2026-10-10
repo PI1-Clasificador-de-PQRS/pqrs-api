@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
 from app.api.schemas.common import ApiSchema
 from app.domain.categories import Category, Engine
@@ -13,7 +14,14 @@ MODEL_FIELD_DESCRIPTION = (
 
 
 class ClassifyRequest(ApiSchema):
-    text: str = Field(min_length=1, max_length=5000, description="Texto de la PQRS (1–5000).")
+    text: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)
+    ] = Field(
+        description=(
+            "Texto de la PQRS: de 1 a 5.000 caracteres, contados tras quitar los espacios "
+            "del inicio y del final."
+        )
+    )
     model: Engine | None = Field(default=None, description=MODEL_FIELD_DESCRIPTION)
     external_ref: str | None = Field(
         default=None,
@@ -33,17 +41,17 @@ class ClassifyResponse(ApiSchema):
 class BatchItem(ApiSchema):
     text: str = Field(
         description=(
-            "Texto de la PQRS: de 1 a 5.000 caracteres. El esquema no lo restringe a propósito: "
-            "un texto vacío o de más de 5.000 caracteres no rechaza el lote con 422; ese "
-            "elemento devuelve su propio `error` (`invalid_request`) en `results` y el resto "
-            "se clasifica con normalidad."
+            "Texto de la PQRS: de 1 a 5.000 caracteres, contados tras quitar los espacios del "
+            "inicio y del final. El esquema no lo restringe a propósito: un texto vacío o de más "
+            "de 5.000 caracteres no rechaza el lote con 422; ese elemento devuelve su propio "
+            "`error` (`invalid_text`) en `results` y el resto se clasifica con normalidad."
         )
     )
     external_ref: str | None = Field(
         default=None,
         description=(
             "Referencia del sistema que llama: máximo 100 caracteres. Si lo excede, ese "
-            "elemento devuelve su propio `error` (`invalid_request`) y el resto sigue."
+            "elemento devuelve su propio `error` (`invalid_external_ref`) y el resto sigue."
         ),
     )
 

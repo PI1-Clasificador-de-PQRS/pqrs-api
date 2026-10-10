@@ -13,16 +13,12 @@ CSRF = {"X-PQRS-CSRF": "1"}
 PASSWORD = "contraseña-segura-1"
 MARKER = "texto-original-de-una-pqrs-MARCADOR"
 
-SESSION_OR_KEY_ROUTES = [
-    ("POST", "/api/v1/classify", {"text": "Quiero información sobre mi trámite"}),
-    ("POST", "/api/v1/classify/batch", {"items": [{"text": "uno"}, {"text": "dos"}]}),
-]
 SESSION_ONLY_ROUTES = [
     ("GET", "/api/v1/classifications", None),
     ("GET", f"/api/v1/classifications/{uuid4()}", None),
     ("GET", "/api/v1/metrics/summary", None),
 ]
-ALL_ROUTES = SESSION_OR_KEY_ROUTES + SESSION_ONLY_ROUTES
+ALL_ROUTES = SESSION_ONLY_ROUTES
 
 
 def call(client: TestClient, method: str, path: str, body, headers=None):
@@ -57,37 +53,6 @@ def test_with_session_is_501(
     assert response.json()["detail"]["code"] == "not_implemented"
 
 
-@pytest.mark.parametrize(("method", "path", "body"), [r for r in ALL_ROUTES if r[0] == "POST"])
-def test_post_with_session_requires_csrf(
-    client: TestClient,
-    db_session: Session,
-    hasher: Argon2PasswordHasher,
-    method: str,
-    path: str,
-    body,
-) -> None:
-    log_in(client, db_session, hasher)
-    response = call(client, method, path, body)
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "csrf_required"
-
-
-@pytest.mark.parametrize(("method", "path", "body"), SESSION_OR_KEY_ROUTES)
-def test_api_key_is_accepted_where_classification_is_allowed(
-    client: TestClient,
-    db_session: Session,
-    hasher: Argon2PasswordHasher,
-    method: str,
-    path: str,
-    body,
-) -> None:
-    org, _ = seed_login_user(db_session, hasher)
-    raw, _key = seed_api_key(db_session, org.id)
-    response = call(client, method, path, body, {"X-API-Key": raw})  # sin cabecera CSRF
-    assert response.status_code == 501
-    assert response.json()["detail"]["code"] == "not_implemented"
-
-
 @pytest.mark.parametrize(("method", "path", "body"), SESSION_ONLY_ROUTES)
 def test_api_key_is_rejected_on_session_only_routes(
     client: TestClient,
@@ -107,12 +72,6 @@ def test_api_key_is_rejected_on_session_only_routes(
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [
-        ("POST", "/api/v1/classify", {"text": ""}),
-        ("POST", "/api/v1/classify", {"text": MARKER * 200}),  # > 5000 caracteres
-        ("POST", "/api/v1/classify", {"text": MARKER, "model": "gpt"}),
-        ("POST", "/api/v1/classify", {"text": MARKER, "external_ref": "r" * 101}),
-        ("POST", "/api/v1/classify/batch", {"items": []}),
-        ("POST", "/api/v1/classify/batch", {"items": [{"text": MARKER}], "batch_id": "no-es-uuid"}),
         ("GET", "/api/v1/classifications?page_size=101", None),
         ("GET", "/api/v1/classifications?page=0", None),
         ("GET", "/api/v1/classifications?category=Otra", None),
@@ -134,19 +93,3 @@ def test_invalid_requests_are_422_without_echoing_input(
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_request"
     assert MARKER not in response.text
-
-
-def test_auth_is_checked_before_the_body(client: TestClient) -> None:
-    response = client.post("/api/v1/classify", json={"text": ""})
-    assert response.status_code == 401
-
-
-def test_batch_items_are_not_length_validated_by_the_schema(
-    client: TestClient, db_session: Session, hasher: Argon2PasswordHasher
-) -> None:
-    """Un elemento vacío no tumba el lote con 422: lo gestionará la parte 2 con su `error`."""
-    log_in(client, db_session, hasher)
-    response = client.post(
-        "/api/v1/classify/batch", json={"items": [{"text": ""}, {"text": "ok"}]}, headers=CSRF
-    )
-    assert response.status_code == 501

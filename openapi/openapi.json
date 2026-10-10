@@ -12,11 +12,11 @@
                 "type": "null"
               }
             ],
-            "description": "Referencia del sistema que llama: máximo 100 caracteres. Si lo excede, ese elemento devuelve su propio `error` (`invalid_request`) y el resto sigue.",
+            "description": "Referencia del sistema que llama: máximo 100 caracteres. Si lo excede, ese elemento devuelve su propio `error` (`invalid_external_ref`) y el resto sigue.",
             "title": "External Ref"
           },
           "text": {
-            "description": "Texto de la PQRS: de 1 a 5.000 caracteres. El esquema no lo restringe a propósito: un texto vacío o de más de 5.000 caracteres no rechaza el lote con 422; ese elemento devuelve su propio `error` (`invalid_request`) en `results` y el resto se clasifica con normalidad.",
+            "description": "Texto de la PQRS: de 1 a 5.000 caracteres, contados tras quitar los espacios del inicio y del final. El esquema no lo restringe a propósito: un texto vacío o de más de 5.000 caracteres no rechaza el lote con 422; ese elemento devuelve su propio `error` (`invalid_text`) en `results` y el resto se clasifica con normalidad.",
             "title": "Text",
             "type": "string"
           }
@@ -306,7 +306,7 @@
             "description": "Motor a usar. Si se omite, la API elige el motor predeterminado disponible."
           },
           "text": {
-            "description": "Texto de la PQRS (1–5000).",
+            "description": "Texto de la PQRS: de 1 a 5.000 caracteres, contados tras quitar los espacios del inicio y del final.",
             "maxLength": 5000,
             "minLength": 1,
             "title": "Text",
@@ -393,6 +393,8 @@
           "method_not_allowed",
           "batch_too_large",
           "invalid_request",
+          "invalid_text",
+          "invalid_external_ref",
           "too_many_attempts",
           "rate_limited",
           "not_implemented",
@@ -722,7 +724,7 @@
     }
   },
   "info": {
-    "description": "API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de información).\n\n**Contrato v0.** `GET /models`, `POST /classify`, `POST /classify/batch`, `GET /classifications`, `GET /classifications/{id}` y `GET /metrics/summary` están definidos pero responden `501 not_implemented` hasta la parte 2.\n\n## Credenciales\n\n* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.\n* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** (`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.\n* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con API key están exentos.\n\nToda credencial se resuelve en una organización; un recurso de otra organización responde 404.\n\n## Errores\n\nTodos los errores tienen la forma `{\"detail\": {\"code\": \"<código_estable>\", \"message\": \"<texto>\"}}`.\n\n| HTTP | Códigos |\n|---|---|\n| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |\n| 403 | `csrf_required` |\n| 404 | `not_found` |\n| 413 | `batch_too_large` |\n| 422 | `invalid_request` |\n| 429 | `too_many_attempts`, `rate_limited` |\n| 501 | `not_implemented` |\n| 503 | `llm_unavailable`, `classifier_unavailable` |\n",
+    "description": "API del MVP del Clasificador automático de PQRS (Petición, Reclamo, Denuncia, Solicitud de información).\n\n**Contrato en construcción (E2 parte 2).** `GET /classifications`, `GET /classifications/{id}` y `GET /metrics/summary` están definidos pero responden `501 not_implemented` hasta el siguiente PR.\n\n## Credenciales\n\n* **Sesión (personas):** cookie `HttpOnly` que fija `POST /auth/login`. El navegador solo habla con el dashboard (Next.js), que actúa como proxy y reenvía la cookie a esta API.\n* **API key (sistemas externos):** cabecera `X-API-Key`. Una API key **solo puede clasificar** (`/models`, `/classify`, `/classify/batch`); historial, métricas y `/me` exigen sesión.\n* **CSRF:** las peticiones POST, PUT, PATCH y DELETE autenticadas con cookie deben llevar la cabecera `X-PQRS-CSRF: 1` (la añade el proxy del dashboard). El login y las peticiones con API key están exentos.\n\nToda credencial se resuelve en una organización; un recurso de otra organización responde 404.\n\n## Errores\n\nTodos los errores tienen la forma `{\"detail\": {\"code\": \"<código_estable>\", \"message\": \"<texto>\"}}`.\n\n| HTTP | Códigos |\n|---|---|\n| 401 | `missing_credentials`, `invalid_credentials`, `session_expired`, `session_required` |\n| 403 | `csrf_required` |\n| 404 | `not_found` |\n| 413 | `batch_too_large` |\n| 422 | `invalid_request` (en un lote, por elemento: `invalid_text`, `invalid_external_ref`) |\n| 429 | `too_many_attempts`, `rate_limited` |\n| 501 | `not_implemented` |\n| 503 | `llm_unavailable`, `classifier_unavailable` |\n",
     "summary": "API del Clasificador automático de PQRS",
     "title": "pqrs-api",
     "version": "0.1.0"
@@ -1357,7 +1359,7 @@
     },
     "/api/v1/classify": {
       "post": {
-        "description": "Clasifica un texto en una de las 4 categorías. No devuelve confianza.\n\n**Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key. Se guarda solo el\ntexto anonimizado, nunca el original.",
+        "description": "Clasifica un texto en una de las 4 categorías. No devuelve confianza.\n\nAcepta sesión o API key. El origen que se guarda es `ui` con sesión y `api` con API key.\n\n**Motor.** Si `model` viene, se usa ese motor; si no está disponible o falla, la respuesta es 503\n(`llm_unavailable` o `classifier_unavailable`) y la API **nunca** cambia de motor por su cuenta.\nSi se omite, se usa `llm` cuando está disponible y, si no, `classifier`; esa elección se hace antes\nde clasificar y, si el motor elegido falla después, también es un 503. La respuesta indica el\nmotor usado. Un 503 por circuito abierto trae `Retry-After`.\n\n**Privacidad.** El texto se anonimiza antes de enviarse al motor y de guardarse; el texto original\nno se guarda ni se registra. El LLM solo ve los primeros 1.200 caracteres de cada texto.",
         "operationId": "classify_api_v1_classify_post",
         "parameters": [
           {
@@ -1496,26 +1498,6 @@
             },
             "description": "Códigos posibles: `rate_limited`"
           },
-          "501": {
-            "content": {
-              "application/json": {
-                "examples": {
-                  "not_implemented": {
-                    "value": {
-                      "detail": {
-                        "code": "not_implemented",
-                        "message": "Funcionalidad aún no implementada."
-                      }
-                    }
-                  }
-                },
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Códigos posibles: `not_implemented`"
-          },
           "503": {
             "content": {
               "application/json": {
@@ -1561,7 +1543,7 @@
     },
     "/api/v1/classify/batch": {
       "post": {
-        "description": "Clasifica un lote de hasta 50 textos.\n\nLímites:\n\n* **Máximo 50 elementos** en `items`; más de 50 responde 413 `batch_too_large` y no se\n  clasifica ninguno. Una lista vacía responde 422 `invalid_request`.\n* **Cada texto: de 1 a 5.000 caracteres.** Un elemento que no cumple devuelve su propio\n  `error` (`invalid_request`) en `results` sin detener el resto del lote.\n* **`external_ref`: máximo 100 caracteres**, con el mismo error por elemento.\n\n**Contrato v0:** responde 501 hasta la parte 2. Acepta sesión o API key.",
+        "description": "Clasifica un lote de hasta 50 textos.\n\nLímites:\n\n* **Máximo 50 elementos** en `items`; más de 50 responde 413 `batch_too_large` y no se\n  clasifica ninguno. Una lista vacía responde 422 `invalid_request`.\n* **Cada texto: de 1 a 5.000 caracteres** (tras quitar espacios de los extremos). Un elemento\n  que no cumple devuelve su propio `error` (`invalid_text`) en `results` sin detener el resto.\n* **`external_ref`: máximo 100 caracteres**; si lo excede, el elemento devuelve\n  `invalid_external_ref`.\n\nLos elementos válidos se anonimizan y se clasifican en **una sola llamada** al motor. Si el\nmotor falla, la respuesta es 503 para todo el bloque y no se guarda nada de él. El dashboard\nenvía los lotes grandes en bloques de 50 con el mismo `batch_id` y se detiene ante un fallo:\nlos bloques anteriores ya guardados se conservan.\n\n`batch_id` se toma de la petición si viene; si no, se genera. El origen que se guarda es\n`ui_batch` con sesión y `api` con API key. La latencia que se guarda de cada elemento es la del\nbloque repartida entre sus elementos válidos.\n\n**Motor.** Si `model` viene, se usa ese motor; si no está disponible o falla, la respuesta es 503\n(`llm_unavailable` o `classifier_unavailable`) y la API **nunca** cambia de motor por su cuenta.\nSi se omite, se usa `llm` cuando está disponible y, si no, `classifier`; esa elección se hace antes\nde clasificar y, si el motor elegido falla después, también es un 503. La respuesta indica el\nmotor usado. Un 503 por circuito abierto trae `Retry-After`.\n\n**Privacidad.** El texto se anonimiza antes de enviarse al motor y de guardarse; el texto original\nno se guarda ni se registra. El LLM solo ve los primeros 1.200 caracteres de cada texto.",
         "operationId": "classify_batch_api_v1_classify_batch_post",
         "parameters": [
           {
@@ -1719,26 +1701,6 @@
               }
             },
             "description": "Códigos posibles: `rate_limited`"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "examples": {
-                  "not_implemented": {
-                    "value": {
-                      "detail": {
-                        "code": "not_implemented",
-                        "message": "Funcionalidad aún no implementada."
-                      }
-                    }
-                  }
-                },
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Códigos posibles: `not_implemented`"
           },
           "503": {
             "content": {

@@ -3,7 +3,6 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pqrs_classifier.testing import FakeEngine
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -12,7 +11,7 @@ from app.infrastructure.engines.registry import EngineRegistry
 from app.infrastructure.security.passwords import Argon2PasswordHasher
 from app.main import create_app
 from tests.db_utils import TEST_DATABASE_URL, create_database, migrate
-from tests.fakes import FakeClock
+from tests.fakes import FakeClock, RecordingFakeEngine
 
 
 @pytest.fixture(scope="session")
@@ -79,18 +78,21 @@ def clock() -> FakeClock:
 
 
 @pytest.fixture
-def llm_engine() -> FakeEngine:
-    return FakeEngine(id="llm", model_version="fake-llm-1", prompt_version="fake-prompt-1")
+def llm_engine() -> RecordingFakeEngine:
+    return RecordingFakeEngine(id="llm", model_version="fake-llm-1", prompt_version="fake-prompt-1")
 
 
 @pytest.fixture
-def classifier_engine() -> FakeEngine:
-    return FakeEngine(id="classifier", model_version="fake-classifier-1")
+def classifier_engine() -> RecordingFakeEngine:
+    return RecordingFakeEngine(id="classifier", model_version="fake-classifier-1")
 
 
 @pytest.fixture
 def registry(
-    settings: Settings, clock: FakeClock, llm_engine: FakeEngine, classifier_engine: FakeEngine
+    settings: Settings,
+    clock: FakeClock,
+    llm_engine: RecordingFakeEngine,
+    classifier_engine: RecordingFakeEngine,
 ) -> EngineRegistry:
     """Registro con motores falsos: sin red, sin torch."""
     return EngineRegistry(

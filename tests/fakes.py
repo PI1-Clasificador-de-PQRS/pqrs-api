@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from pqrs_classifier.categories import Category
 from pqrs_classifier.engines.base import EngineError, EngineId, Prediction
+from pqrs_classifier.testing import FakeEngine
 
 
 class FakeClock:
@@ -64,3 +65,19 @@ class ScriptedEngine:
 
 def fail() -> EngineError:
     return EngineError("fallo programado")
+
+
+class RecordingFakeEngine(FakeEngine):
+    """``FakeEngine`` que guarda los textos que recibe (cada llamada a ``classify_batch``)."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.calls: list[list[str]] = []
+
+    def classify(self, text: str) -> Prediction:
+        self.calls.append([text])
+        return super().classify(text)
+
+    def classify_batch(self, texts: Sequence[str]) -> list[Prediction]:
+        self.calls.append(list(texts))
+        return [super(RecordingFakeEngine, self).classify(t) for t in texts]
