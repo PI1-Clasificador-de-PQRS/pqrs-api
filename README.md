@@ -49,8 +49,9 @@ Nunca subas el token al repositorio ni lo pegues en un issue o PR.
 Por defecto `uv sync` **no** instala torch ni sentence-transformers: las pruebas usan motores falsos
 (`pqrs_classifier.testing.FakeEngine`). El motor local real necesita el grupo `ml`
 (`uv sync --group ml`, torch de CPU en Linux) y los artefactos del release `v0.1.0` en `MODEL_DIR`.
-Las pruebas con el motor real están marcadas `slow` y corren en un job aparte de la CI (manual o
-nocturno): `SLOW_MODEL_DIR=<dir> uv run --group ml pytest -m slow`.
+Las pruebas con el motor real están marcadas `slow` y corren en un workflow aparte
+(`.github/workflows/slow.yml`), en los PR que tocan dependencias, `Dockerfile`, el arranque o los
+motores, y a mano: `SLOW_MODEL_DIR=<dir> uv run --group ml pytest -m slow`.
 
 ## Levantar el entorno local de cero
 
