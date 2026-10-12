@@ -35,6 +35,9 @@ class AdminService:
         self._uow.commit()
         return org
 
+    def list_orgs(self) -> list[Organization]:
+        return self._uow.organizations.list()
+
     def create_user(self, org_id: UUID, *, email: str, name: str, password: str) -> User:
         self._require_org(org_id)
         email = email.strip().lower()

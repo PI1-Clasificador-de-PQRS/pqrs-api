@@ -75,6 +75,20 @@ def create_org(name: Annotated[str, typer.Argument(help="Nombre de la organizaci
     typer.echo(str(org.id))
 
 
+@app.command("list-orgs")
+def list_orgs() -> None:
+    """Lista las organizaciones registradas (id, estado, fecha de creación y nombre)."""
+    with _admin() as admin:
+        orgs = admin.list_orgs()
+    if not orgs:
+        typer.echo("No hay organizaciones registradas.")
+        return
+    for org in orgs:
+        status = "activa" if org.active else "inactiva"
+        created = org.created_at.isoformat(timespec="seconds")
+        typer.echo(f"{org.id}  {status:<8}  creada: {created}  {org.name}")
+
+
 @app.command("create-user")
 def create_user(
     org_id: OrgIdOption,

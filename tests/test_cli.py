@@ -61,6 +61,21 @@ def test_create_org_prints_its_id(runner: CliRunner, db_session: Session) -> Non
     assert name == "Gobernación"
 
 
+def test_list_orgs_shows_every_org_sorted_by_name(runner: CliRunner) -> None:
+    empty = runner.invoke(cli, ["list-orgs"])
+    assert empty.exit_code == 0
+    assert "No hay organizaciones" in empty.stdout
+
+    org_b, org_a = create_org(runner, "Gobernación"), create_org(runner, "Alcaldía")
+    result = runner.invoke(cli, ["list-orgs"])
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith(str(org_a)) and lines[0].endswith("Alcaldía")
+    assert lines[1].startswith(str(org_b)) and lines[1].endswith("Gobernación")
+    assert all("activa" in line for line in lines)
+
+
 def test_create_user_with_password_stdin_can_log_in(runner: CliRunner, client: TestClient) -> None:
     org_id = create_org(runner)
     result = create_user(runner, org_id)
@@ -312,6 +327,7 @@ def test_help_lists_every_command(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["--help"])
     for command in (
         "create-org",
+        "list-orgs",
         "create-user",
         "reset-password",
         "deactivate-user",

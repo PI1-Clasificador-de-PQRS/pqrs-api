@@ -28,6 +28,8 @@ class OrganizationRepository(Protocol):
 
     def get(self, org_id: UUID) -> Organization | None: ...
 
+    def list(self) -> list[Organization]: ...
+
 
 class UserRepository(Protocol):
     def add(

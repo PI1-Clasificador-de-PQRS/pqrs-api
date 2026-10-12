@@ -111,6 +111,7 @@ usa `uv run pqrs-admin ...`; con la opción A, `docker compose exec api pqrs-adm
 # 1. Organización: imprime su id (el resto de comandos lo piden con --org-id)
 pqrs-admin create-org "Alcaldía de Ejemplo"
 ORG=<id impreso arriba>
+pqrs-admin list-orgs                      # id, estado, fecha de creación y nombre de cada una
 
 # 2. Usuario: la contraseña (mínimo 12 caracteres) se pide por teclado, nunca como argumento
 pqrs-admin create-user --org-id $ORG --email ana@example.com --name "Ana Pérez"
