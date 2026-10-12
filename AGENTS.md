@@ -67,6 +67,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy
 uv run uvicorn app.main:get_app --factory --reload --no-access-log
 
 uv run pqrs-admin create-org "Nombre"
+uv run pqrs-admin list-orgs
 uv run pqrs-admin create-user --org-id <uuid> --email <correo> --name "<nombre>"
 uv run pqrs-admin reset-password --org-id <uuid> --email <correo>
 uv run pqrs-admin deactivate-user --org-id <uuid> --email <correo>
