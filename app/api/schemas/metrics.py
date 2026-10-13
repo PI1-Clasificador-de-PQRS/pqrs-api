@@ -14,7 +14,9 @@ class Granularity(StrEnum):
 
 
 class TimeseriesPoint(ApiSchema):
-    period: date = Field(description="Fecha de inicio del periodo (día o lunes de la semana).")
+    period: date = Field(
+        description="Fecha local (en `tz`) de inicio del periodo: el día o el lunes de la semana."
+    )
     count: int
 
 
@@ -30,3 +32,7 @@ class MetricsSummary(ApiSchema):
     by_source: dict[Source, int] = Field(description="Conteo por origen.")
     timeseries: list[TimeseriesPoint]
     evaluation: EvaluationSummary
+    timezone: str = Field(
+        description="Zona IANA aplicada a los filtros de fecha y a la serie (eco de `tz`).",
+        examples=["America/Bogota"],
+    )

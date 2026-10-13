@@ -97,6 +97,8 @@ class ClassificationFilters:
 
     created_from: datetime | None = None  # inclusive
     created_before: datetime | None = None  # exclusivo
+    # Zona IANA ya validada (``resolve_timezone``) con la que se arman los periodos de la serie.
+    tz: str = "UTC"
     category: str | None = None
     engine: str | None = None
     source: str | None = None
@@ -147,13 +149,22 @@ class ClassificationRepository(Protocol):
     def timeseries(
         self, org_id: UUID, filters: ClassificationFilters, *, granularity: str
     ) -> dict[date, int]:
-        """Conteo por periodo (``day`` o ``week``, UTC) solo de los periodos con filas."""
+        """Conteo por periodo (``day`` o ``week`` en ``filters.tz``) solo de los periodos con filas.
+
+        La clave es la fecha local de inicio del periodo: el día o el lunes de la semana.
+        """
         ...
 
     def bounds(
         self, org_id: UUID, filters: ClassificationFilters
     ) -> tuple[datetime, datetime] | None:
         """Primera y última marca de tiempo de las filas filtradas; ``None`` si no hay."""
+        ...
+
+
+class TimezoneCatalog(Protocol):
+    def names(self) -> frozenset[str]:
+        """Nombres de zona que reconoce PostgreSQL (``pg_timezone_names``)."""
         ...
 
 

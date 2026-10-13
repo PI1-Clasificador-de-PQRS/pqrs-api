@@ -18,6 +18,7 @@ dependencies = [
     # Modelo de spaCy para el NER de nombres de `anonymize()`: el extra `ner` solo instala spaCy.
     # Sin él, los nombres propios no se anonimizan (la API se niega a arrancar fuera de desarrollo).
     "es-core-news-sm",
+    "tzdata>=2026.5",
 ]
 
 [project.scripts]

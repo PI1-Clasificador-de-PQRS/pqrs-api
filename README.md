@@ -150,6 +150,9 @@ curl -b jar.txt -H "$P" -H 'X-PQRS-CSRF: 1' -H 'Content-Type: application/json' 
   localhost:8000/api/v1/classify
 curl -b jar.txt -H "$P" 'localhost:8000/api/v1/classifications?page_size=5'
 curl -b jar.txt -H "$P" 'localhost:8000/api/v1/metrics/summary?granularity=day'
+# Días en hora de Colombia en vez de UTC (lo que envía el dashboard)
+curl -b jar.txt -H "$P" \
+  'localhost:8000/api/v1/metrics/summary?date_from=2026-10-01&date_to=2026-10-12&tz=America/Bogota'
 
 # Cerrar sesión (POST con cookie → cabecera CSRF)
 curl -b jar.txt -c jar.txt -H "$P" -X POST -H 'X-PQRS-CSRF: 1' localhost:8000/api/v1/auth/logout -i
@@ -189,6 +192,10 @@ Reglas para el proxy:
   `NEXT_PUBLIC_*`), y generarlo largo y aleatorio (`openssl rand -hex 32`).
 - Las peticiones con `X-API-Key` van directo a la API y no necesitan nada de lo anterior.
 - `GET /health` y `GET /ready` son públicos.
+- En `GET /classifications` y `GET /metrics/summary`, enviar `tz=America/Bogota`: sin `tz`, los días
+  de `date_from`/`date_to` y los periodos de la serie se cuentan en UTC (una clasificación de las
+  8 p. m. del 12 en Bogotá caería el 13). `MetricsSummary.timezone` devuelve la zona aplicada.
+  `created_at` siempre llega como instante con zona; convertirlo a hora local es tarea del dashboard.
 
 `PROXY_SHARED_SECRET` es **obligatorio** salvo con `ENVIRONMENT=development`: si falta en otro
 entorno, la API no arranca.

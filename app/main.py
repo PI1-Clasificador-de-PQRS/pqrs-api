@@ -15,6 +15,7 @@ from app.application.ports import Clock, PasswordHasher
 from app.domain.errors import ErrorCode
 from app.infrastructure.config.settings import Settings, get_settings
 from app.infrastructure.db.session import get_sessionmaker
+from app.infrastructure.db.timezones import PgTimezoneCatalog
 from app.infrastructure.engines.registry import EngineRegistry
 from app.infrastructure.logging import configure_logging
 from app.infrastructure.ner import check_ner_available
@@ -25,7 +26,7 @@ from app.infrastructure.security.request_rate_limit import InMemoryRequestRateLi
 
 logger = logging.getLogger("pqrs.api")
 
-API_VERSION = "0.1.0"
+API_VERSION = "0.2.0"
 API_PREFIX = "/api/v1"
 
 OPENAPI_TAGS = [
@@ -152,6 +153,7 @@ def create_app(
     app.state.settings = settings
     app.state.registry = registry or EngineRegistry(settings, clock)
     app.state.session_factory = session_factory or get_sessionmaker()
+    app.state.timezones = PgTimezoneCatalog(app.state.session_factory)
     app.state.clock = clock
     app.state.hasher = hasher or Argon2PasswordHasher()
     app.state.rate_limiter = InMemoryLoginRateLimiter(
