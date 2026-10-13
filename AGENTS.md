@@ -190,10 +190,27 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
 - `GET /classifications` (+ `/{id}`) y `GET /metrics/summary` son solo de sesión. Historial y métricas usan los
   **mismos filtros** (`ClassificationFilters`, una sola función `_filtered` en el repositorio), así que
   `total` coincide con el de `/classifications` para las mismas fechas (criterio E4).
-- Fechas `YYYY-MM-DD` en UTC, inclusivas: `[date_from 00:00, date_to + 1 día 00:00)`. `date_from > date_to` → 422.
-- Métricas: agregaciones en SQL (`GROUP BY`, `date_trunc` sobre `timezone('UTC', created_at)`), mapas con todas
-  las claves (también las de valor 0) y serie sin huecos (semanas ISO desde el lunes). Sin fechas, la serie va de
-  la primera a la última clasificación; más de 400 periodos → 422. `evaluation.f1_macro` sale de los motores.
+- **Zona horaria `tz`** (opcional, nombre IANA, por defecto `UTC`; el dashboard envía `America/Bogota`): fechas
+  `YYYY-MM-DD` inclusivas en esa zona: `[date_from 00:00, date_to + 1 día 00:00)`. `build_filters`
+  (`app/application/reporting.py`) convierte los extremos a instantes UTC **en Python** con `zoneinfo` (cambios de
+  hora incluidos) y guarda la zona en `ClassificationFilters.tz`; el SQL solo compara instantes. Sin `tz` todo es
+  idéntico a antes. `date_from > date_to` → 422. `GET /classifications/{id}` no usa `tz`.
+- **Validación de `tz`** (`resolve_timezone`, dependencia `get_timezone`): el nombre exacto debe estar en
+  `zoneinfo.available_timezones()` (paquete `tzdata`, para la imagen `slim`) **y** en `pg_timezone_names`
+  (`PgTimezoneCatalog`, leído una vez por proceso). Así Python y la base nunca interpretan nombres distintos:
+  quedan fuera las abreviaturas y cadenas POSIX que PostgreSQL acepta (`UTC+5` = UTC−5), las mayúsculas mal
+  escritas, `localtime`/`posixrules` (dependen del host; se excluyen siempre, porque algunos sistemas los
+  exponen también en `zoneinfo`) y los alias que la imagen `postgres:16` (Debian 13, sin `tzdata-legacy`) no
+  trae (`US/Eastern`, `EST`, `Asia/Calcutta`…). Inválida → 422 `invalid_request` sin repetir el valor.
+- Métricas: agregaciones en SQL (`GROUP BY`, `date_trunc(granularity, timezone(:tz, created_at))`, con la zona como
+  **parámetro enlazado**), mapas con todas las claves (también las de valor 0) y serie sin huecos (días locales o
+  semanas ISO desde el lunes local; `period` es la fecha local de inicio y el relleno se calcula en fechas
+  locales). Sin fechas, la serie va del día local de la primera a la última clasificación; más de 400 periodos →
+  422. `MetricsSummary.timezone` devuelve la zona aplicada. `evaluation.f1_macro` sale de los motores.
+- Riesgo aceptado: el rango usa el tzdata de Python (`tzdata` 2026e) y la serie el de PostgreSQL (el del sistema
+  de su imagen, 2026c al escribir esto). Si una zona cambiara sus reglas entre versiones, una fila junto a la
+  medianoche podría filtrarse con una regla y agruparse con otra. Bogotá (UTC−5 fijo desde 1993) no se ve
+  afectada.
 - Todo método nuevo del repositorio recibe `org_id` obligatorio (`test_repository_guard.py`).
 
 ## Límites de solicitudes y de cuerpo (parte 2, PR d)

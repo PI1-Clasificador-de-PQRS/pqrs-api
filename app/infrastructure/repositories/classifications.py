@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import String, bindparam, func, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import ClassificationCounts, ClassificationFilters
@@ -132,10 +132,12 @@ class SqlClassificationRepository:
     def timeseries(
         self, org_id: UUID, filters: ClassificationFilters, *, granularity: str
     ) -> dict[date, int]:
-        # ``timezone('UTC', ...)`` pasa el timestamptz a hora UTC sin zona; los periodos son
-        # días UTC o semanas que empiezan el lunes (ISO), como ``date_trunc`` de PostgreSQL.
+        # ``timezone(:tz, ...)`` pasa el timestamptz a hora local sin zona; los periodos son días
+        # locales o semanas que empiezan el lunes local (ISO), como ``date_trunc`` de PostgreSQL.
+        # La zona va siempre como parámetro enlazado (ya validada con ``resolve_timezone``).
+        tz = bindparam("tz", filters.tz, type_=String)
         period = func.date_trunc(
-            granularity, func.timezone("UTC", ClassificationModel.created_at)
+            granularity, func.timezone(tz, ClassificationModel.created_at)
         ).label("period")
         stmt = self._filtered(select(period, func.count()), org_id, filters).group_by(period)
         return {row_period.date(): n for row_period, n in self._session.execute(stmt)}

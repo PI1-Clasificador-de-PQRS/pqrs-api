@@ -1,9 +1,10 @@
 from datetime import date
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_metrics_service, get_registry, require_session
+from app.api.deps import get_metrics_service, get_registry, get_timezone, require_session
 from app.api.errors import error_responses
 from app.api.routers.models import to_model_info
 from app.api.schemas.metrics import EvaluationSummary, Granularity, MetricsSummary, TimeseriesPoint
@@ -33,11 +34,12 @@ def metrics_summary(
     principal: Annotated[Principal, Depends(require_session)],
     service: Annotated[MetricsService, Depends(get_metrics_service)],
     registry: Annotated[EngineRegistry, Depends(get_registry)],
+    tz: Annotated[ZoneInfo, Depends(get_timezone)],
     date_from: Annotated[
-        date | None, Query(description="Desde esta fecha (UTC), inclusive. Formato YYYY-MM-DD.")
+        date | None, Query(description="Desde esta fecha (en `tz`), inclusive. Formato YYYY-MM-DD.")
     ] = None,
     date_to: Annotated[
-        date | None, Query(description="Hasta esta fecha (UTC), inclusive. Formato YYYY-MM-DD.")
+        date | None, Query(description="Hasta esta fecha (en `tz`), inclusive. Formato YYYY-MM-DD.")
     ] = None,
     granularity: Granularity = Granularity.DAY,
 ) -> MetricsSummary:
@@ -45,18 +47,22 @@ def metrics_summary(
 
     Requiere sesión (una API key no sirve). `by_category`, `by_model` y `by_source` traen
     **todas** las claves posibles, también las que valen 0. `total` coincide con el `total` de
-    `GET /classifications` con las mismas fechas.
+    `GET /classifications` con las mismas fechas y la misma `tz`.
 
-    `timeseries` cuenta por día UTC (`day`) o por semana ISO que empieza el lunes (`week`) y no
-    tiene huecos: los periodos sin clasificaciones valen 0. Si falta `date_from` o `date_to`, la
-    serie empieza o termina en la primera o última clasificación; sin ninguna fecha ni datos queda
-    vacía. Un rango de más de 400 periodos responde 422 `invalid_request`.
+    Los días de `date_from` y `date_to` y los periodos de la serie se interpretan en la zona `tz`
+    (por defecto, UTC; el dashboard envía `America/Bogota`); `timezone` devuelve la zona aplicada.
+    `timeseries` cuenta por día local (`day`) o por semana ISO que empieza el lunes local (`week`);
+    `period` es la fecha local de inicio. No tiene huecos: los periodos sin clasificaciones valen 0.
+    Si falta `date_from` o `date_to`, la serie empieza o termina en el día local de la primera o
+    última clasificación; sin ninguna fecha ni datos queda vacía. Un rango de más de 400 periodos
+    responde 422 `invalid_request`.
     """
     data = service.summary(
         principal.org_id,
         date_from=date_from,
         date_to=date_to,
         granularity=granularity.value,
+        tz=tz,
     )
     evaluation = {s.id: to_model_info(s).evaluation for s in registry.status()}
     return MetricsSummary(
@@ -66,4 +72,5 @@ def metrics_summary(
         by_source={Source(k): v for k, v in data.by_source.items()},
         timeseries=[TimeseriesPoint(period=p, count=n) for p, n in data.timeseries],
         evaluation=EvaluationSummary(llm=evaluation["llm"], classifier=evaluation["classifier"]),
+        timezone=data.timezone,
     )

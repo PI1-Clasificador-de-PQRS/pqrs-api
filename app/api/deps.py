@@ -3,8 +3,9 @@ import ipaddress
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
-from fastapi import Depends, Header, Request, Security
+from fastapi import Depends, Header, Query, Request, Security
 from fastapi.security import APIKeyCookie, APIKeyHeader
 from pqrs_classifier.preprocessing import anonymize
 from sqlalchemy.orm import Session
@@ -13,8 +14,13 @@ from app.api.client_ip import resolve_client_ip
 from app.api.errors import ApiError
 from app.application.auth import AuthService
 from app.application.classification import ClassificationService
-from app.application.ports import RequestRateLimiter, UnitOfWork
-from app.application.reporting import HistoryService, MetricsService
+from app.application.ports import RequestRateLimiter, TimezoneCatalog, UnitOfWork
+from app.application.reporting import (
+    DEFAULT_TIMEZONE,
+    HistoryService,
+    MetricsService,
+    resolve_timezone,
+)
 from app.domain.errors import DomainError, ErrorCode
 from app.domain.principal import Principal
 from app.infrastructure.config.settings import Settings, get_settings
@@ -104,6 +110,22 @@ def get_history_service(uow: Annotated[UnitOfWork, Depends(get_uow)]) -> History
 
 def get_metrics_service(uow: Annotated[UnitOfWork, Depends(get_uow)]) -> MetricsService:
     return MetricsService(uow)
+
+
+TZ_DESCRIPTION = (
+    "Zona horaria IANA (por ejemplo, `America/Bogota`) en la que se interpretan los días de "
+    "`date_from` y `date_to` y los periodos de la serie. Por defecto, `UTC`. El dashboard envía "
+    "`America/Bogota`. Debe ser un nombre que reconozcan tanto Python como PostgreSQL; si no, "
+    "responde 422 `invalid_request`."
+)
+
+
+def get_timezone(
+    request: Request,
+    tz: Annotated[str, Query(description=TZ_DESCRIPTION)] = DEFAULT_TIMEZONE,
+) -> ZoneInfo:
+    catalog: TimezoneCatalog = request.app.state.timezones
+    return resolve_timezone(tz, catalog)
 
 
 def proxy_secret_is_valid(settings: Settings, given: str | None) -> bool:

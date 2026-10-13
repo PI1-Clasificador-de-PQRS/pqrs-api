@@ -1,10 +1,11 @@
 from datetime import date
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_history_service, require_session
+from app.api.deps import get_history_service, get_timezone, require_session
 from app.api.errors import error_responses, or_404
 from app.api.schemas.classifications import ClassificationOut, ClassificationPage
 from app.application.reporting import HistoryService, build_filters
@@ -47,11 +48,12 @@ def to_out(item: Classification) -> ClassificationOut:
 def list_classifications(
     principal: Annotated[Principal, Depends(require_session)],
     service: Annotated[HistoryService, Depends(get_history_service)],
+    tz: Annotated[ZoneInfo, Depends(get_timezone)],
     date_from: Annotated[
-        date | None, Query(description="Desde esta fecha (UTC), inclusive. Formato YYYY-MM-DD.")
+        date | None, Query(description="Desde esta fecha (en `tz`), inclusive. Formato YYYY-MM-DD.")
     ] = None,
     date_to: Annotated[
-        date | None, Query(description="Hasta esta fecha (UTC), inclusive. Formato YYYY-MM-DD.")
+        date | None, Query(description="Hasta esta fecha (en `tz`), inclusive. Formato YYYY-MM-DD.")
     ] = None,
     category: Category | None = None,
     model: Engine | None = None,
@@ -63,12 +65,17 @@ def list_classifications(
     """Historial paginado de la organización de la sesión, del más reciente al más antiguo.
 
     Los filtros se combinan con AND. `total` es el número de clasificaciones que cumplen los
-    filtros (no solo las de la página), igual que el `total` de `GET /metrics/summary` con las
-    mismas fechas. Requiere sesión (una API key no sirve).
+    filtros (no solo las de la página), igual que el `total` de `GET /metrics/summary` con los
+    mismos filtros de fecha y la misma `tz`. Requiere sesión (una API key no sirve).
+
+    Con `tz`, el rango es `[date_from 00:00, date_to + 1 día 00:00)` en esa zona (por defecto,
+    UTC). `created_at` se devuelve siempre como instante ISO 8601 con zona; mostrarlo en hora local
+    es tarea del cliente.
     """
     filters = build_filters(
         date_from,
         date_to,
+        tz=tz,
         category=category.value if category else None,
         engine=model.value if model else None,
         source=source.value if source else None,
