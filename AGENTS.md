@@ -117,9 +117,11 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
   sistemas externos directamente: N solo es válido si todo el tráfico pasa por los N proxies.
   - Cómo elegir N: número de proxies de confianza que agregan una entrada entre el cliente y la API.
     Un N mayor que el real permite falsificar la IP; uno menor agrupa a los usuarios en un cubo.
-  - Azure Container Apps: la ingress agrega una entrada y el proxy del dashboard debe agregar la IP
-    real del navegador, así que para el tráfico del dashboard el valor esperado es `2` (`1` si solo
-    hay ingress). Debe comprobarse en el despliegue.
+  - Azure Container Apps: **`TRUSTED_PROXY_HOPS=1`** (solo la ingress, que agrega la IP de quien la
+    llama). El proxy del dashboard **no** se cuenta: envía la IP del navegador en `X-PQRS-Client-IP`,
+    que solo se acepta con un `X-PQRS-Proxy-Secret` válido (ver el punto siguiente). **Nunca uses `2`:**
+    como la API es pública, un atacante que la llame directamente podría escribir la entrada que se
+    tomaría como su IP y saltarse el límite de intentos de login. Debe comprobarse en el despliegue.
 
 - **Proxy de confianza del dashboard:** la API es pública, así que la IP del navegador solo se acepta
   de un proxy autenticado. `PROXY_SHARED_SECRET` (cabecera `X-PQRS-Proxy-Secret`, comparación con
