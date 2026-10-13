@@ -20,15 +20,20 @@ GRANULARITIES = ("day", "week")
 DEFAULT_TIMEZONE = "UTC"
 
 
+# Nombres que dependen de la máquina (``localtime`` es la zona del host, que puede no ser la misma
+# en la API y en la base); algunos sistemas los exponen en ``available_timezones()``.
+_HOST_DEPENDENT_ZONES = frozenset({"localtime", "posixrules"})
+
+
 @cache
 def _python_timezones() -> frozenset[str]:
-    return frozenset(available_timezones())
+    return frozenset(available_timezones()) - _HOST_DEPENDENT_ZONES
 
 
 def resolve_timezone(name: str, catalog: TimezoneCatalog) -> ZoneInfo:
     """Zona IANA que reconocen **a la vez** ``zoneinfo`` y PostgreSQL, con el nombre exacto.
 
-    ``ZoneInfo`` resolvería también rutas del sistema (``localtime``) y PostgreSQL aceptaría
+    ``ZoneInfo`` resolvería también rutas del sistema y PostgreSQL aceptaría
     abreviaturas y cadenas POSIX (``UTC+5``, con el signo invertido); exigir el nombre en ambos
     catálogos garantiza que el rango (Python) y la serie (SQL) usan la misma zona. El mensaje de
     error nunca repite el valor recibido.

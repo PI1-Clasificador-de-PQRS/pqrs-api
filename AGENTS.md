@@ -199,7 +199,8 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
   `zoneinfo.available_timezones()` (paquete `tzdata`, para la imagen `slim`) **y** en `pg_timezone_names`
   (`PgTimezoneCatalog`, leído una vez por proceso). Así Python y la base nunca interpretan nombres distintos:
   quedan fuera las abreviaturas y cadenas POSIX que PostgreSQL acepta (`UTC+5` = UTC−5), las mayúsculas mal
-  escritas, `localtime`/`posixrules` y los alias que la imagen `postgres:16` (Debian 13, sin `tzdata-legacy`) no
+  escritas, `localtime`/`posixrules` (dependen del host; se excluyen siempre, porque algunos sistemas los
+  exponen también en `zoneinfo`) y los alias que la imagen `postgres:16` (Debian 13, sin `tzdata-legacy`) no
   trae (`US/Eastern`, `EST`, `Asia/Calcutta`…). Inválida → 422 `invalid_request` sin repetir el valor.
 - Métricas: agregaciones en SQL (`GROUP BY`, `date_trunc(granularity, timezone(:tz, created_at))`, con la zona como
   **parámetro enlazado**), mapas con todas las claves (también las de valor 0) y serie sin huecos (días locales o
