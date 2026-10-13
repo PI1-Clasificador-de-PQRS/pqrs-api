@@ -4,10 +4,6 @@ API REST del MVP del **Clasificador automático de PQRS** (Proyecto Integrador I
 Antioquia). Clasifica Peticiones, Reclamos, Denuncias y Solicitudes de información. El sistema tiene
 tres repositorios: el clasificador (`pqrs-classifier`), esta API y el dashboard en Next.js.
 
-Estado: **E2 parte 2, en curso** — la parte 1 (autenticación, aislamiento por organización, CLI y
-contrato OpenAPI v0) está en `main`; la parte 2 (clasificación, historial, métricas y endurecimiento)
-se entrega en varios PR.
-
 ## Requisitos
 
 - [uv](https://docs.astral.sh/uv/) (instala Python 3.11 por su cuenta)
