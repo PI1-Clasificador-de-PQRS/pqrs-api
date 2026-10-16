@@ -235,6 +235,9 @@ tablas exigen una migración nueva en `migrations/versions/` (`alembic check` de
   scikit-learn del grupo `ml` si cambia `metadata.json`.
 - `docker-compose.yml`: `api` construye la imagen (`pqrs-api:local`), `migrate` la reutiliza; `api` tiene
   healthcheck sobre `/ready`. Usa `ENVIRONMENT=development` con un `PROXY_SHARED_SECRET` de desarrollo.
+- **Publicación en GHCR:** el job `publish` de `ci.yml` (tras `test`, solo en push a `main` o tag `v*`) sube
+  `ghcr.io/pi1-clasificador-de-pqrs/pqrs-api` (`linux/amd64`) con `GITHUB_TOKEN` y `CLASSIFIER_REPO_TOKEN` como
+  build secret. Etiquetas: `main`/`latest`, `sha-<commit>` y la versión semver en los tags (README).
 
 ## Qué queda para la parte 2
 

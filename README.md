@@ -89,6 +89,26 @@ docker build --secret id=classifier_token,env=CLASSIFIER_REPO_TOKEN -t pqrs-api 
 Una sola réplica y un solo proceso `uvicorn`: el límite de solicitudes, el de intentos de login y el
 circuito del LLM viven en memoria.
 
+### Imagen publicada en GHCR
+
+El job `publish` de la CI (`.github/workflows/ci.yml`) construye la imagen y la sube a
+`ghcr.io/pi1-clasificador-de-pqrs/pqrs-api` en cada push a `main` y en cada tag `v*`, solo si el
+job `test` pasa. Usa el `GITHUB_TOKEN` del workflow (permiso `packages: write`) y el mismo secreto
+`CLASSIFIER_REPO_TOKEN` como *build secret*. Solo `linux/amd64`.
+
+| Evento | Etiquetas |
+|---|---|
+| Push a `main` | `main`, `latest`, `sha-<commit>` |
+| Tag `v1.2.3` | `1.2.3`, `1.2`, `sha-<commit>` |
+
+Para desplegar, fija `sha-<commit>` o una versión, no `latest`. Si el paquete es privado, quien lo
+descarga (por ejemplo Azure Container Apps) necesita un token de GitHub con solo `read:packages`:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <usuario> --password-stdin
+docker pull ghcr.io/pi1-clasificador-de-pqrs/pqrs-api:sha-<commit>
+```
+
 ### Opción B: API local con `uv` y solo la base de datos en Docker
 
 ```bash

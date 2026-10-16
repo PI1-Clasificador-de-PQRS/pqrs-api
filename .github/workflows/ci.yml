@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -67,3 +68,51 @@ jobs:
 
       - name: Tests
         run: uv run pytest
+
+  # Publica la imagen en GHCR solo si las pruebas pasan y el evento es un push (a main o un tag v*).
+  # Etiquetas: `main` y `latest` en main, `sha-<commit>` siempre y `X.Y.Z`/`X.Y` en los tags.
+  publish:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # La etapa builder ocupa varios GB (torch, pesos de SBERT): se libera espacio del runner.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/pi1-clasificador-de-pqrs/pqrs-api
+          tags: |
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      # El token del clasificador entra como build secret, igual que en local (ver Dockerfile).
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            classifier_token=${{ secrets.CLASSIFIER_REPO_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
