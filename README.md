@@ -4,6 +4,49 @@ API REST del MVP del **Clasificador automático de PQRS** (Proyecto Integrador I
 Antioquia). Clasifica Peticiones, Reclamos, Denuncias y Solicitudes de información. El sistema tiene
 tres repositorios: el clasificador (`pqrs-classifier`), esta API y el dashboard en Next.js.
 
+## Arquitectura
+
+```mermaid
+flowchart LR
+    B([Navegador]) --> W["pqrs-web<br/>Next.js (proxy BFF)"]
+    W -->|"cookie de sesión<br/>+ X-PQRS-Proxy-Secret"| API["pqrs-api<br/>FastAPI"]
+    X([Sistemas externos]) -->|X-API-Key| API
+    API --> NER["Anonimización<br/>NER (spaCy)"]
+    NER --> SEL{"¿Qué motor?"}
+    SEL -->|"llm (por defecto<br/>si está disponible)"| LLM["LLM<br/>Azure AI Foundry<br/>con circuit breaker"]
+    SEL -->|classifier| CLF["Clasificador local<br/>pqrs-classifier (SBERT)"]
+    API --> DB[("PostgreSQL 16<br/>solo texto anonimizado")]
+```
+
+- El navegador nunca llama a la API directamente: el dashboard reenvía la cookie de sesión como proxy. Los sistemas externos usan una API key, que solo permite clasificar.
+- El texto se anonimiza antes de llegar a cualquier motor, y solo se guarda la versión anonimizada.
+- El motor se elige **antes** de clasificar; si falla después, la API responde 503 en lugar de cambiar de motor. El circuito del LLM se abre tras 3 fallos seguidos.
+
+El código sigue una arquitectura por capas (monolito modular). `tests/test_architecture.py` hace cumplir las dependencias:
+
+```mermaid
+flowchart RL
+    API["app/api<br/>routers, esquemas"] --> APP
+    CLI["app/cli<br/>pqrs-admin"] --> APP
+    INF["app/infrastructure<br/>SQLAlchemy, repositorios,<br/>motores, seguridad"] --> APP
+    APP["app/application<br/>casos de uso y puertos"] --> DOM["app/domain<br/>entidades, taxonomía"]
+```
+
+### CI/CD y despliegue
+
+```mermaid
+flowchart LR
+    P["Pull request<br/>o push a main / tag v*"] --> T["Job test<br/>Ruff · Mypy · Alembic<br/>OpenAPI · pytest"]
+    T -->|solo en push| PUB["Job publish<br/>imagen Docker"]
+    PUB --> G[("GHCR<br/>pqrs-api")]
+    G --> M["Container App Job<br/>migraciones"]
+    G --> CA["Azure Container Apps<br/>pqrs-api"]
+    CA --> PG[("Azure Database<br/>for PostgreSQL")]
+    CA --> AF["Azure AI Foundry<br/>gpt-4.1-mini"]
+```
+
+GitHub Actions prueba cada pull request y cada push a `main` o a un tag `v*`; en los push, además publica la imagen en GHCR. En Azure, las migraciones corren como un Container App Job y la API como una Container App que usa esa imagen.
+
 ## Requisitos
 
 - [uv](https://docs.astral.sh/uv/) (instala Python 3.11 por su cuenta)
